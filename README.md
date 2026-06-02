@@ -19,7 +19,7 @@
 
 ## 📦 Instalación
 
-1. Descarga `SuperBlocksDisplays-1.0.0.jar` de [Releases](https://github.com/Melonzio/SuperBlocksDisplays/releases)
+1. Descarga `SuperBlocksDisplays-1.0.0.jar` de [Releases](https://github.com/Scrulius/SuperBlocksDisplays/releases)
 2. Colócalo en la carpeta `plugins/` de tu servidor Paper
 3. Reinicia el servidor
 4. ¡Listo! Usa `/bde help` para ver los comandos

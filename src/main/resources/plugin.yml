@@ -4,7 +4,7 @@ main: com.blockdisplay.plugin.BlockDisplayPlugin
 api-version: '1.21'
 author: Melonzio
 description: Spawn, animate, and manage BlockDisplay models from block-display.com
-website: https://github.com/Melonzio/SuperBlocksDisplays
+website: https://github.com/Scrulius/SuperBlocksDisplays
 commands:
   bde:
     description: Manage Block Display models
