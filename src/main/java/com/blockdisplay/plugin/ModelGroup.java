@@ -69,9 +69,9 @@ public class ModelGroup {
         String dimension = world.getKey().toString();
 
         Boolean originalFeedback = world.getGameRuleValue(GameRule.SEND_COMMAND_FEEDBACK);
-        if (Boolean.TRUE.equals(originalFeedback)) {
-            world.setGameRule(GameRule.SEND_COMMAND_FEEDBACK, false);
-        }
+        Boolean originalLog = world.getGameRuleValue(GameRule.LOG_ADMIN_COMMANDS);
+        if (Boolean.TRUE.equals(originalFeedback)) world.setGameRule(GameRule.SEND_COMMAND_FEEDBACK, false);
+        if (Boolean.TRUE.equals(originalLog)) world.setGameRule(GameRule.LOG_ADMIN_COMMANDS, false);
 
         for (String rawSnbt : modelData.content.passengers) {
             String[] individualParts = SPLIT_PATTERN.split(rawSnbt);
@@ -85,8 +85,9 @@ public class ModelGroup {
 
                 String nbt = snbt.replaceFirst("\\{id:\"minecraft:[^\"]+\",", "{");
 
-                if (nbt.contains("Tags:[")) {
-                    nbt = nbt.replace("Tags:[", "Tags:[\"" + uniqueTag + "\",");
+                Matcher tagsMatcher = Pattern.compile("Tags:\\s*\\[").matcher(nbt);
+                if (tagsMatcher.find()) {
+                    nbt = tagsMatcher.replaceFirst("Tags:[\"" + uniqueTag + "\",");
                 } else {
                     nbt = nbt.substring(0, nbt.length() - 1) + ",Tags:[\"" + uniqueTag + "\"]}";
                 }
@@ -116,16 +117,17 @@ public class ModelGroup {
             }
         }
 
-        if (Boolean.TRUE.equals(originalFeedback)) {
-            world.setGameRule(GameRule.SEND_COMMAND_FEEDBACK, true);
-        }
+        if (Boolean.TRUE.equals(originalFeedback)) world.setGameRule(GameRule.SEND_COMMAND_FEEDBACK, true);
+        if (Boolean.TRUE.equals(originalLog)) world.setGameRule(GameRule.LOG_ADMIN_COMMANDS, true);
 
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            for (Entity e : world.getNearbyEntities(origin, 15, 15, 15)) {
-                if (e.getScoreboardTags().contains(uniqueTag)) {
-                    e.getPersistentDataContainer().set(groupKey, PersistentDataType.STRING, groupId.toString());
-                    e.removeScoreboardTag(uniqueTag);
-                    parts.add(e);
+            for (Entity e : world.getEntitiesByClass(org.bukkit.entity.Display.class)) {
+                if (e.getLocation().distanceSquared(origin) <= 400) {
+                    if (e.getScoreboardTags().contains(uniqueTag)) {
+                        e.getPersistentDataContainer().set(groupKey, PersistentDataType.STRING, groupId.toString());
+                        e.removeScoreboardTag(uniqueTag);
+                        parts.add(e);
+                    }
                 }
             }
             plugin.getLogger().info("Model " + modelId + " spawned with " + parts.size() + " parts (group " + groupId.toString().substring(0, 8) + ")");
