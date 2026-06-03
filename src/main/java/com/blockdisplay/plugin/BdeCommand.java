@@ -36,7 +36,8 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
     private static final Pattern NAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_]{2,32}$");
 
     private static final List<String> SUBCOMMANDS = Arrays.asList(
-            "spawn", "remove", "purge", "list", "rotate", "anim", "speed", "info", "clearcache", "help"
+            "spawn", "remove", "tp", "purge", "list", "rotate", "anim", "speed", "info",
+            "download", "library", "undownload", "clearcache", "help"
     );
 
     public BdeCommand(BlockDisplayPlugin plugin) {
@@ -60,12 +61,16 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
         switch (action) {
             case "spawn" -> handleSpawn(player, args);
             case "remove" -> handleRemove(player, args);
+            case "tp" -> handleTp(player, args);
             case "list" -> handleList(player);
             case "rotate" -> handleRotate(player, args);
             case "anim" -> handleAnim(player, args);
             case "speed" -> handleSpeed(player, args);
             case "info" -> handleInfo(player, args);
             case "purge" -> handlePurge(player, args);
+            case "download" -> handleDownload(player, args);
+            case "library" -> handleLibrary(player);
+            case "undownload" -> handleUndownload(player, args);
             case "clearcache" -> handleClearCache(player);
             case "help" -> sendHelp(player);
             default -> player.sendMessage(PREFIX + ChatColor.RED + "Unknown command. Use /bde help");
@@ -77,11 +82,11 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
     // ========== SPAWN ==========
     private void handleSpawn(Player player, String[] args) {
         if (args.length < 3) {
-            player.sendMessage(PREFIX + ChatColor.RED + "Usage: /bde spawn <model_id> <name>");
+            player.sendMessage(PREFIX + ChatColor.RED + "Usage: /bde spawn <model_id|library_name> <name>");
             player.sendMessage(PREFIX + ChatColor.GRAY + "Name must be 2-32 characters, alphanumeric or underscores.");
             return;
         }
-        String modelId = args[1];
+        String source = args[1];
         String displayName = args[2];
 
         // Validate name format
@@ -96,35 +101,47 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
-        player.sendMessage(PREFIX + ChatColor.YELLOW + "Fetching model " + ChatColor.WHITE + modelId + ChatColor.YELLOW + "...");
+        // Check library first
+        ModelData libraryData = plugin.getModelManager().loadFromLibrary(source);
+        if (libraryData != null) {
+            player.sendMessage(PREFIX + ChatColor.YELLOW + "Spawning from library: " + ChatColor.WHITE + source);
+            spawnModel(player, libraryData, source, displayName);
+            return;
+        }
 
-        plugin.getModelManager().fetchModel(modelId).thenAccept(modelData -> {
+        // Otherwise fetch from API
+        player.sendMessage(PREFIX + ChatColor.YELLOW + "Fetching model " + ChatColor.WHITE + source + ChatColor.YELLOW + " from API...");
+
+        plugin.getModelManager().fetchModel(source).thenAccept(modelData -> {
             plugin.getServer().getScheduler().runTask(plugin, () -> {
                 if (modelData == null) {
                     player.sendMessage(PREFIX + ChatColor.RED + "Failed to load model. Check the ID is valid and not expired.");
                     return;
                 }
-
-                Location loc = player.getLocation();
-                ModelGroup group = new ModelGroup(loc, modelId, displayName);
-                group.spawn(modelData, plugin);
-                plugin.getActiveGroups().put(group.getGroupId(), group);
-
-                if (modelData.hasAnimations()) {
-                    group.setAnimating(true);
-                    group.setLoopAnim(true);
-                }
-
-                plugin.getPersistenceManager().saveGroup(group);
-
-                player.sendMessage(PREFIX + ChatColor.GREEN + "Model " + ChatColor.WHITE + displayName
-                        + ChatColor.GREEN + " spawned! (" + ChatColor.GRAY + modelId + ChatColor.GREEN + ")");
-
-                if (modelData.hasAnimations()) {
-                    player.sendMessage(PREFIX + ChatColor.AQUA + "✦ This model has animations! (auto-playing)");
-                }
+                spawnModel(player, modelData, source, displayName);
             });
         });
+    }
+
+    private void spawnModel(Player player, ModelData modelData, String modelId, String displayName) {
+        Location loc = player.getLocation();
+        ModelGroup group = new ModelGroup(loc, modelId, displayName);
+        group.spawn(modelData, plugin);
+        plugin.getActiveGroups().put(group.getGroupId(), group);
+
+        if (modelData.hasAnimations()) {
+            group.setAnimating(true);
+            group.setLoopAnim(true);
+        }
+
+        plugin.getPersistenceManager().saveGroup(group);
+
+        player.sendMessage(PREFIX + ChatColor.GREEN + "Model " + ChatColor.WHITE + displayName
+                + ChatColor.GREEN + " spawned! (" + ChatColor.GRAY + modelId + ChatColor.GREEN + ")");
+
+        if (modelData.hasAnimations()) {
+            player.sendMessage(PREFIX + ChatColor.AQUA + "✦ This model has animations! (auto-playing)");
+        }
     }
 
     // ========== REMOVE ==========
@@ -151,6 +168,22 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
         } else {
             player.sendMessage(PREFIX + ChatColor.RED + "No model found. Use /bde list to see active models.");
         }
+    }
+
+    // ========== TP ==========
+    private void handleTp(Player player, String[] args) {
+        ModelGroup target = (args.length >= 2) ? resolveGroupOrNearest(args[1], player) : getNearestGroup(player);
+
+        if (target == null) {
+            player.sendMessage(PREFIX + ChatColor.RED + "No model found.");
+            return;
+        }
+
+        Location loc = target.getOrigin().clone();
+        loc.setYaw(player.getLocation().getYaw());
+        loc.setPitch(player.getLocation().getPitch());
+        player.teleport(loc);
+        player.sendMessage(PREFIX + ChatColor.GREEN + "Teleported to '" + ChatColor.WHITE + target.getDisplayName() + ChatColor.GREEN + "'.");
     }
 
     // ========== LIST ==========
@@ -380,6 +413,78 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
                 + ChatColor.GREEN + " display entities within " + ChatColor.WHITE + radius + ChatColor.GREEN + " blocks.");
     }
 
+    // ========== DOWNLOAD ==========
+    private void handleDownload(Player player, String[] args) {
+        if (args.length < 3) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Usage: /bde download <model_id> <library_name>");
+            return;
+        }
+        String modelId = args[1];
+        String libraryName = args[2];
+
+        if (!NAME_PATTERN.matcher(libraryName).matches()) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Invalid name! Use 2-32 characters: letters, numbers, and underscores only.");
+            return;
+        }
+
+        if (plugin.getModelManager().libraryHas(libraryName)) {
+            player.sendMessage(PREFIX + ChatColor.RED + "'" + libraryName + "' already exists in the library. Use /bde undownload to remove it first.");
+            return;
+        }
+
+        player.sendMessage(PREFIX + ChatColor.YELLOW + "Downloading model " + ChatColor.WHITE + modelId + ChatColor.YELLOW + "...");
+
+        plugin.getModelManager().fetchModel(modelId).thenAccept(modelData -> {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                if (modelData == null) {
+                    player.sendMessage(PREFIX + ChatColor.RED + "Failed to download model. Check the ID is valid and not expired.");
+                    return;
+                }
+                plugin.getModelManager().saveToLibrary(libraryName, modelData);
+                player.sendMessage(PREFIX + ChatColor.GREEN + "Model saved to library as '" + ChatColor.WHITE + libraryName + ChatColor.GREEN + "'.");
+                player.sendMessage(PREFIX + ChatColor.GRAY + "Use /bde spawn " + libraryName + " <name> to spawn it anytime.");
+            });
+        });
+    }
+
+    // ========== LIBRARY ==========
+    private void handleLibrary(Player player) {
+        List<String> names = plugin.getModelManager().getLibraryNames();
+        if (names.isEmpty()) {
+            player.sendMessage(PREFIX + ChatColor.YELLOW + "Library is empty. Use /bde download <id> <name> to save models.");
+            return;
+        }
+
+        player.sendMessage(PREFIX + ChatColor.GOLD + "Model Library (" + names.size() + "):");
+        player.sendMessage(ChatColor.DARK_GRAY + "────────────────────────────────");
+
+        for (String name : names) {
+            TextComponent line = new TextComponent(
+                    ChatColor.WHITE + " " + name + " " +
+                    ChatColor.DARK_GRAY + "[" + ChatColor.GREEN + "spawn" + ChatColor.DARK_GRAY + "] " +
+                    ChatColor.DARK_GRAY + "[" + ChatColor.RED + "delete" + ChatColor.DARK_GRAY + "]"
+            );
+            line.setClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND, "/bde spawn " + name + " "));
+            line.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new Text("Click to spawn this model")));
+            player.spigot().sendMessage(line);
+        }
+    }
+
+    // ========== UNDOWNLOAD ==========
+    private void handleUndownload(Player player, String[] args) {
+        if (args.length < 2) {
+            player.sendMessage(PREFIX + ChatColor.RED + "Usage: /bde undownload <library_name>");
+            return;
+        }
+        String libraryName = args[1];
+
+        if (plugin.getModelManager().deleteFromLibrary(libraryName)) {
+            player.sendMessage(PREFIX + ChatColor.GREEN + "Removed '" + libraryName + "' from library.");
+        } else {
+            player.sendMessage(PREFIX + ChatColor.RED + "'" + libraryName + "' not found in library.");
+        }
+    }
+
     // ========== CLEARCACHE ==========
     private void handleClearCache(Player player) {
         plugin.getModelManager().clearCache();
@@ -391,8 +496,9 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.DARK_GRAY + "────────────────────────────────");
         player.sendMessage(PREFIX + ChatColor.GOLD + "SuperBlocksDisplays " + ChatColor.GRAY + "by Melonzio");
         player.sendMessage(ChatColor.DARK_GRAY + "────────────────────────────────");
-        player.sendMessage(ChatColor.YELLOW + " /bde spawn <id> <name>" + ChatColor.GRAY + " - Spawn a model");
+        player.sendMessage(ChatColor.YELLOW + " /bde spawn <id|lib> <name>" + ChatColor.GRAY + " - Spawn a model");
         player.sendMessage(ChatColor.YELLOW + " /bde remove [name|nearest]" + ChatColor.GRAY + " - Remove model");
+        player.sendMessage(ChatColor.YELLOW + " /bde tp [name|nearest]" + ChatColor.GRAY + " - Teleport to model");
         player.sendMessage(ChatColor.YELLOW + " /bde list" + ChatColor.GRAY + " - List all active models");
         player.sendMessage(ChatColor.YELLOW + " /bde rotate <yaw> [name|nearest]" + ChatColor.GRAY + " - Rotate a model");
         player.sendMessage(ChatColor.YELLOW + " /bde anim play <loop|once> [name]" + ChatColor.GRAY + " - Play animation");
@@ -400,7 +506,12 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.YELLOW + " /bde speed <0.25-4.0> [name]" + ChatColor.GRAY + " - Set anim speed");
         player.sendMessage(ChatColor.YELLOW + " /bde info [name|nearest]" + ChatColor.GRAY + " - Show model details");
         player.sendMessage(ChatColor.YELLOW + " /bde purge <1-10>" + ChatColor.GRAY + " - Kill all displays in radius");
-        player.sendMessage(ChatColor.YELLOW + " /bde clearcache" + ChatColor.GRAY + " - Clear model cache");
+        player.sendMessage(ChatColor.DARK_GRAY + "────────────────────────────────");
+        player.sendMessage(PREFIX + ChatColor.GOLD + "Library");
+        player.sendMessage(ChatColor.YELLOW + " /bde download <id> <name>" + ChatColor.GRAY + " - Save model to library");
+        player.sendMessage(ChatColor.YELLOW + " /bde library" + ChatColor.GRAY + " - List saved models");
+        player.sendMessage(ChatColor.YELLOW + " /bde undownload <name>" + ChatColor.GRAY + " - Remove from library");
+        player.sendMessage(ChatColor.YELLOW + " /bde clearcache" + ChatColor.GRAY + " - Clear API cache");
         player.sendMessage(ChatColor.DARK_GRAY + "────────────────────────────────");
     }
 
@@ -415,11 +526,7 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
         String action = args[0].toLowerCase();
 
         switch (action) {
-            case "spawn" -> {
-                if (args.length == 2) return Collections.singletonList("<model_id>");
-                if (args.length == 3) return Collections.singletonList("<name>");
-            }
-            case "remove", "info" -> {
+            case "remove", "info", "tp" -> {
                 if (args.length == 2) {
                     List<String> options = new ArrayList<>();
                     options.add("nearest");
@@ -470,6 +577,23 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
             }
             case "purge" -> {
                 if (args.length == 2) return Arrays.asList("1", "2", "3", "5", "10");
+            }
+            case "spawn" -> {
+                if (args.length == 2) {
+                    List<String> options = new ArrayList<>(plugin.getModelManager().getLibraryNames());
+                    options.add("<model_id>");
+                    return filterStartsWith(options, args[1]);
+                }
+                if (args.length == 3) return Collections.singletonList("<name>");
+            }
+            case "download" -> {
+                if (args.length == 2) return Collections.singletonList("<model_id>");
+                if (args.length == 3) return Collections.singletonList("<library_name>");
+            }
+            case "undownload" -> {
+                if (args.length == 2) {
+                    return filterStartsWith(plugin.getModelManager().getLibraryNames(), args[1]);
+                }
             }
         }
 
