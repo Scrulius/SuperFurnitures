@@ -20,7 +20,8 @@ public class CommandFeedbackFilter extends AbstractFilter {
     private static final String[] SUPPRESSED_MESSAGES = {
             "Modified entity data of",
             "Nothing changed. The specified properties already have these values",
-            "No entity was found"
+            "No entity was found",
+            "Summoned new"
     };
 
     @Override
