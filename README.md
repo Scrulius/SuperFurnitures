@@ -8,40 +8,47 @@
 
 ## ✨ Features
 
-- 🎭 **Model Spawning** — Import any model from block-display.com using its ID
-- 🎬 **Animations** — Play native model animations with full play/stop control
+- 🎭 **Model Spawning** — Import any model from block-display.com using its ID with a custom name
+- 🎬 **Animations** — Play native model animations with loop/once modes
 - ⚡ **Speed Control** — Adjust animation playback speed (0.25x to 4x)
 - 🔄 **Rotation** — Rotate models to any angle
-- 💾 **Persistence** — Models survive server restarts
+- 💾 **Persistence** — Models survive server restarts without duplication
+- 📛 **Custom Names** — Every model gets a mandatory name for easy management
 - 📋 **Interactive List** — Clickable chat interface to manage active models
-- 🔍 **Tab Completion** — Full autocomplete support for all commands
-- 🔇 **No Console Spam** — Data merge entity messages are automatically silenced
+- 🔍 **Smart Targeting** — Reference models by name, `nearest`, or partial UUID
+- 🧹 **Purge Command** — Kill all display entities in a radius for quick cleanup
+- 🔇 **Silent Operation** — All command feedback (console & in-game) is automatically silenced
+- 🔍 **Tab Completion** — Full autocomplete with model name suggestions
 
 ## 📦 Installation
 
 1. Download `SuperBlocksDisplays-1.0.0.jar` from [Releases](https://github.com/Scrulius/SuperBlocksDisplays/releases)
 2. Place it in your Paper server's `plugins/` folder
 3. Restart the server
-4. You're done! Use `/bde help` to see available commands
+4. Use `/bde help` to see available commands
 
 ## 🎮 Commands
 
 | Command | Description |
 |---------|------------|
-| `/bde spawn <id>` | Spawns a model by its ID |
-| `/bde remove [group]` | Removes the specified model or the nearest one |
-| `/bde list` | Lists all active models |
-| `/bde rotate <yaw> [group]` | Rotates a model (0-360°) |
-| `/bde anim <play\|stop> [group]` | Controls model animation |
-| `/bde speed <0.25-4.0> [group]` | Sets animation playback speed |
-| `/bde info [group]` | Shows detailed information about a model |
+| `/bde spawn <id> <name>` | Spawns a model with a custom name |
+| `/bde remove [name\|nearest]` | Removes a model by name or the nearest one |
+| `/bde list` | Lists all active models with their names |
+| `/bde rotate <yaw> [name\|nearest]` | Rotates a model (0-360°) |
+| `/bde anim play <loop\|once> [name]` | Starts animation playback |
+| `/bde anim stop [name\|nearest]` | Stops animation playback |
+| `/bde speed <0.25-4.0> [name]` | Sets animation playback speed |
+| `/bde info [name\|nearest]` | Shows detailed model information |
+| `/bde purge <1-10>` | Kills all display entities within radius |
 | `/bde clearcache` | Clears the downloaded models cache |
 | `/bde help` | Displays the help menu |
+
+> **Tip:** If no model is specified, commands like `remove`, `rotate`, `info`, etc. will target the **nearest** model within 15 blocks.
 
 ## 🔑 Permissions
 
 | Permission | Description | Default |
-|---------|------------|---------|
+|---------|------------|---------| 
 | `superblocksdisp.use` | Allows the use of all commands | OP |
 
 ## ⚙️ Requirements
