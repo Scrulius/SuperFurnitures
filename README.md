@@ -72,6 +72,43 @@ Library files are stored as JSON in `plugins/SuperBlocksDisplays/library/` and a
 |---|---|---|
 | `superblocksdisp.use` | Grants access to all `/bde` commands | OP |
 
+## Configuration
+
+The plugin generates a `config.yml` on first run inside `plugins/SuperBlocksDisplays/`. All values are optional and fall back to sane defaults.
+
+```yaml
+search-radius: 15
+```
+How far (in blocks) to search when resolving the nearest model. Used by any command where you don't specify a name.
+
+```yaml
+cleanup-radius: 50
+```
+Radius for sweeping orphaned entities when removing a model or during server startup. If a model's entities somehow escaped tracking (e.g. after a crash), this is the area the plugin scans to find and kill them.
+
+```yaml
+purge-max-radius: 10
+```
+Upper limit for the `/bde purge` radius argument. Prevents accidentally wiping a large area.
+
+```yaml
+max-models: -1
+```
+Maximum number of active models allowed on the server. Set to `-1` to disable the limit. When the limit is reached, `/bde spawn` will refuse to create new models until one is removed.
+
+```yaml
+auto-play-animations: true
+default-animation-speed: 1.0
+default-animation-mode: loop
+```
+Controls what happens when a model with animations is spawned. If `auto-play-animations` is false, models spawn static and you have to start the animation manually. The speed and mode set the initial values for new models.
+
+```yaml
+min-animation-speed: 0.25
+max-animation-speed: 4.0
+```
+Allowed range for the `/bde speed` command. Requests outside this range are rejected.
+
 ## Technical details
 
 - Models are spawned using `Bukkit.dispatchCommand` with a custom `SilentCommandSender` that discards all output, preventing console spam.
