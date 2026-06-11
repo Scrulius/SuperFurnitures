@@ -97,4 +97,37 @@ public class PlacementIndex {
         }
         return out;
     }
+
+    /** True if the index knows this furniture instance (live furniture; orphans drop out). */
+    public boolean contains(String instanceId) {
+        return byInstance.containsKey(instanceId);
+    }
+
+    /** Snapshot of every entry (admin /sf list). */
+    public Map<String, Placement> all() {
+        return new HashMap<>(byInstance);
+    }
+
+    /** Instance id -> placement, for entries owned by a player (admin purge needs the ids). */
+    public Map<String, Placement> byOwnerWithIds(String ownerUuid) {
+        Map<String, Placement> out = new HashMap<>();
+        for (Map.Entry<String, Placement> e : byInstance.entrySet()) {
+            if (e.getValue().owner().equals(ownerUuid)) out.put(e.getKey(), e.getValue());
+        }
+        return out;
+    }
+
+    /** Instance ids the index expects to find in a given chunk (for self-healing on chunk load). */
+    public Map<String, Placement> entriesInChunk(String world, int chunkX, int chunkZ) {
+        Map<String, Placement> out = new HashMap<>();
+        for (Map.Entry<String, Placement> e : byInstance.entrySet()) {
+            Placement p = e.getValue();
+            if (p.world().equals(world)
+                    && ((int) Math.floor(p.x())) >> 4 == chunkX
+                    && ((int) Math.floor(p.z())) >> 4 == chunkZ) {
+                out.put(e.getKey(), p);
+            }
+        }
+        return out;
+    }
 }

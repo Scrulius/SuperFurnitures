@@ -552,11 +552,19 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
         int removed = 0;
         for (Entity entity : player.getNearbyEntities(radius, radius, radius)) {
             // Interaction covers model hitboxes, which aren't Display entities and would
-            // otherwise survive a purge as invisible orphans.
-            if (entity instanceof Display || entity instanceof Interaction) {
-                entity.remove();
-                removed++;
+            // otherwise survive a purge as invisible orphans. LIVE player furniture is exempt:
+            // /bde purge cleans broken admin models, it must never delete players' furniture
+            // (use /sf purge <jugador> for that). Furniture remnants whose index entry is gone
+            // (anchor killed by hand) are NOT exempt — purge is how an admin cleans those up.
+            if (!(entity instanceof Display) && !(entity instanceof Interaction)) continue;
+            String furnitureInstance = entity.getPersistentDataContainer().get(
+                    plugin.getFurnitureManager().keyInstance, PersistentDataType.STRING);
+            if (furnitureInstance != null
+                    && plugin.getFurnitureManager().getIndex().contains(furnitureInstance)) {
+                continue;
             }
+            entity.remove();
+            removed++;
         }
 
         player.sendMessage(PREFIX + ChatColor.GREEN + "Purged " + ChatColor.WHITE + removed

@@ -56,6 +56,9 @@ public class FurnitureManager {
     /** Seat armor stands spawned this session (cleaned on disable; they are non-persistent). */
     private final Set<UUID> activeSeats = new HashSet<>();
     private final Map<UUID, Long> placeCooldown = new HashMap<>();
+    /** Menu/command furniture runs arbitrary commands per click — throttled per player. */
+    private final Map<UUID, Long> interactCooldown = new HashMap<>();
+    private static final long INTERACT_COOLDOWN_MS = 1000;
 
     public FurnitureManager(BlockDisplayPlugin plugin, FurnitureRegistry registry, PlacementIndex index, MythicHook mythic) {
         this.plugin = plugin;
@@ -236,7 +239,6 @@ public class FurnitureManager {
     public void pickup(Player player, Interaction anchor) {
         PersistentDataContainer pdc = anchor.getPersistentDataContainer();
         String instanceStr = pdc.get(keyInstance, PersistentDataType.STRING);
-        String typeId = pdc.get(keyType, PersistentDataType.STRING);
         String ownerStr = pdc.get(keyOwner, PersistentDataType.STRING);
         if (instanceStr == null) return;
 
@@ -248,7 +250,43 @@ public class FurnitureManager {
 
         World world = anchor.getWorld();
         Location loc = anchor.getLocation();
+        String typeId = removeFurniture(anchor);
         FurnitureType type = registry.byId(typeId);
+
+        if (type == null) {
+            bar(player, "Este mueble fue eliminado del catálogo: se retira sin devolver item.", NamedTextColor.YELLOW);
+        } else {
+            ItemStack item = mythic.getItem(type.mythicItem);
+            if (item != null) {
+                Map<Integer, ItemStack> leftover = player.getInventory().addItem(item);
+                for (ItemStack rest : leftover.values()) {
+                    world.dropItemNaturally(player.getLocation(), rest);
+                }
+            } else {
+                bar(player, "El item de este mueble ya no existe en MythicMobs (avisa a un admin).", NamedTextColor.YELLOW);
+            }
+            playSound(world, loc, type.pickupSound);
+            bar(player, "Mueble recogido.", NamedTextColor.GREEN);
+        }
+    }
+
+    /**
+     * Tear a furniture instance down completely: parts, seats, barriers, animation binding,
+     * index entry and the anchor itself. No ownership checks, no item back — callers decide that.
+     *
+     * @return the furniture type id the anchor carried (may be unregistered/orphan).
+     */
+    public String removeFurniture(Interaction anchor) {
+        PersistentDataContainer pdc = anchor.getPersistentDataContainer();
+        String instanceStr = pdc.get(keyInstance, PersistentDataType.STRING);
+        String typeId = pdc.get(keyType, PersistentDataType.STRING);
+        if (instanceStr == null) {
+            anchor.remove();
+            return typeId;
+        }
+
+        World world = anchor.getWorld();
+        Location loc = anchor.getLocation();
 
         // Remove tracked parts
         String partsCsv = pdc.get(keyParts, PersistentDataType.STRING);
@@ -288,31 +326,53 @@ public class FurnitureManager {
 
         // Unbind animation
         try {
-            UUID instance = UUID.fromString(instanceStr);
-            plugin.getFurnitureAnimGroups().remove(instance);
-            plugin.getAnimationManager().removeGroup(instance);
+            unbindAnimation(UUID.fromString(instanceStr));
         } catch (IllegalArgumentException ignored) {
         }
 
         index.remove(instanceStr);
         anchor.eject();
         anchor.remove();
+        return typeId;
+    }
 
-        if (type == null) {
-            bar(player, "Este mueble fue eliminado del catálogo: se retira sin devolver item.", NamedTextColor.YELLOW);
-        } else {
-            ItemStack item = mythic.getItem(type.mythicItem);
-            if (item != null) {
-                Map<Integer, ItemStack> leftover = player.getInventory().addItem(item);
-                for (ItemStack rest : leftover.values()) {
-                    world.dropItemNaturally(player.getLocation(), rest);
-                }
-            } else {
-                bar(player, "El item de este mueble ya no existe en MythicMobs (avisa a un admin).", NamedTextColor.YELLOW);
+    /**
+     * Admin: remove ALL furniture of a player, loading chunks as needed. Entries whose anchor
+     * is gone (killed by hand) are pruned from the index.
+     *
+     * @return [furniture removed, stale index entries pruned]
+     */
+    public int[] purgeOwner(String ownerUuid) {
+        int removed = 0;
+        int pruned = 0;
+        for (Map.Entry<String, PlacementIndex.Placement> entry : index.byOwnerWithIds(ownerUuid).entrySet()) {
+            String instance = entry.getKey();
+            PlacementIndex.Placement p = entry.getValue();
+            World world = Bukkit.getWorld(p.world());
+            if (world == null) {
+                index.remove(instance);
+                pruned++;
+                continue;
             }
-            playSound(world, loc, type.pickupSound);
-            bar(player, "Mueble recogido.", NamedTextColor.GREEN);
+            // Paper loads chunk entities on demand for getEntities()
+            org.bukkit.Chunk chunk = world.getChunkAt(((int) Math.floor(p.x())) >> 4, ((int) Math.floor(p.z())) >> 4);
+            Interaction anchor = null;
+            for (Entity ent : chunk.getEntities()) {
+                if (ent instanceof Interaction i
+                        && instance.equals(i.getPersistentDataContainer().get(keyInstance, PersistentDataType.STRING))) {
+                    anchor = i;
+                    break;
+                }
+            }
+            if (anchor != null) {
+                removeFurniture(anchor);
+                removed++;
+            } else {
+                index.remove(instance);
+                pruned++;
+            }
         }
+        return new int[]{removed, pruned};
     }
 
     // ==================== INTERACT ====================
@@ -330,12 +390,14 @@ public class FurnitureManager {
         switch (type.interactionType) {
             case SEAT -> seat(player, anchor, type);
             case MENU -> {
+                if (interactThrottled(player)) return;
                 if (!type.menu.isBlank()) {
                     Bukkit.dispatchCommand(Bukkit.getConsoleSender(),
                             "dm open " + type.menu + " " + player.getName());
                 }
             }
             case COMMANDS -> {
+                if (interactThrottled(player)) return;
                 for (String entry : type.commands) {
                     String cmd = entry;
                     boolean console = false;
@@ -351,6 +413,17 @@ public class FurnitureManager {
             }
             case NONE -> { }
         }
+    }
+
+    /** @return true (and swallow the click) if the player clicked a command/menu furniture too fast. */
+    private boolean interactThrottled(Player player) {
+        long now = System.currentTimeMillis();
+        Long last = interactCooldown.get(player.getUniqueId());
+        if (last != null && now - last < INTERACT_COOLDOWN_MS) {
+            return true;
+        }
+        interactCooldown.put(player.getUniqueId(), now);
+        return false;
     }
 
     private void seat(Player player, Interaction anchor, FurnitureType type) {
@@ -397,6 +470,29 @@ public class FurnitureManager {
             return;
         }
         bar(player, "No quedan sitios libres.", NamedTextColor.YELLOW);
+    }
+
+    /**
+     * Vanilla's dismount placement doesn't know about our barrier shells: getting off a seat
+     * inside a solid furniture can leave the player suffocating inside a barrier. If the spot
+     * the player landed on isn't free, lift them to the first open spot above (furniture is
+     * at most a few blocks tall).
+     */
+    public void rescueFromSuffocation(Player player) {
+        Location loc = player.getLocation();
+        if (isFreeStandingSpot(loc)) return;
+        for (int dy = 1; dy <= 4; dy++) {
+            Location up = loc.clone().add(0, dy, 0);
+            if (isFreeStandingSpot(up)) {
+                player.teleport(up);
+                return;
+            }
+        }
+    }
+
+    private static boolean isFreeStandingSpot(Location loc) {
+        Block feet = loc.getBlock();
+        return feet.isPassable() && feet.getRelative(BlockFace.UP).isPassable();
     }
 
     /** Called on dismount/quit: remove the now-empty seat stand. */

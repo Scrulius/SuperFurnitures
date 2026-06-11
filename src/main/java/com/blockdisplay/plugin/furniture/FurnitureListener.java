@@ -23,7 +23,9 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class FurnitureListener implements Listener {
@@ -134,6 +136,12 @@ public class FurnitureListener implements Listener {
         Entity vehicle = e.getDismounted();
         if (vehicle.getPersistentDataContainer().has(manager.keySeat, PersistentDataType.BYTE)) {
             manager.releaseSeat(vehicle);
+            // Vanilla decides the landing spot AFTER this event; check it next tick
+            if (e.getEntity() instanceof Player player) {
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (player.isOnline()) manager.rescueFromSuffocation(player);
+                });
+            }
         }
     }
 
@@ -144,6 +152,8 @@ public class FurnitureListener implements Listener {
                 && vehicle.getPersistentDataContainer().has(manager.keySeat, PersistentDataType.BYTE)) {
             vehicle.eject();
             manager.releaseSeat(vehicle);
+            // The position that saves with the quit is the ejected one — fix it NOW (no next tick)
+            manager.rescueFromSuffocation(e.getPlayer());
         }
     }
 
@@ -151,12 +161,44 @@ public class FurnitureListener implements Listener {
 
     @EventHandler
     public void onEntitiesLoad(EntitiesLoadEvent e) {
+        Set<String> anchorsPresent = new HashSet<>();
         for (Entity entity : e.getEntities()) {
             if (entity instanceof Interaction anchor
                     && anchor.getPersistentDataContainer().has(manager.keyType, PersistentDataType.STRING)) {
+                String instance = anchor.getPersistentDataContainer()
+                        .get(manager.keyInstance, PersistentDataType.STRING);
+                if (instance != null) {
+                    anchorsPresent.add(instance);
+                    healIndexEntry(anchor, instance);
+                }
                 manager.bindAnimation(anchor);
             }
         }
+
+        // Self-heal: index entries expecting an anchor in this chunk that no longer exists
+        // (an admin /kill'ed the entities by hand) only pollute the counts — prune them.
+        String world = e.getWorld().getName();
+        Map<String, PlacementIndex.Placement> expected = manager.getIndex()
+                .entriesInChunk(world, e.getChunk().getX(), e.getChunk().getZ());
+        for (String instance : expected.keySet()) {
+            if (!anchorsPresent.contains(instance)) {
+                manager.getIndex().remove(instance);
+                plugin.getLogger().info("[Muebles] Entrada huérfana podada del índice (anchor desaparecido): "
+                        + instance + " en " + world);
+            }
+        }
+    }
+
+    /** A live anchor the index doesn't know (lost/corrupted placements.json) gets re-adopted. */
+    private void healIndexEntry(Interaction anchor, String instance) {
+        if (manager.getIndex().contains(instance)) return;
+        String type = anchor.getPersistentDataContainer().get(manager.keyType, PersistentDataType.STRING);
+        String owner = anchor.getPersistentDataContainer().get(manager.keyOwner, PersistentDataType.STRING);
+        if (type == null || owner == null) return;
+        manager.getIndex().add(instance, new PlacementIndex.Placement(
+                type, owner, anchor.getWorld().getName(),
+                anchor.getLocation().getX(), anchor.getLocation().getY(), anchor.getLocation().getZ()));
+        plugin.getLogger().info("[Muebles] Anchor vivo re-adoptado en el índice: " + type + " (" + instance + ")");
     }
 
     @EventHandler

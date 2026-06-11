@@ -25,3 +25,11 @@ el plugin renombrado migra `plugins/SuperBlocksDisplays` → `plugins/SuperFurni
   NUNCA depende de la API. Los muebles de jugadores usarán otra arquitectura: entities
   persistentes vanilla + metadata en PDC (ver diseño).
 - Piezas trackeadas por **UUID** (no referencias `Entity`, quedan stale al recargar chunk).
+- Robustez post-v1.2.0: `/sf list [jugador]` (resumen global por dueño o detalle) y
+  `/sf purge <jugador>` (`FurnitureManager.purgeOwner`, carga chunks bajo demanda); el índice
+  (`placements.json`) se **auto-cura en `EntitiesLoadEvent`** (poda entradas sin anchor — admin
+  hizo `/kill` a mano — y re-adopta anchors vivos que no conoce — json perdido); `/bde purge`
+  exime SOLO muebles vivos (con entrada en el índice) → los restos huérfanos sí se purgan;
+  anti-asfixia al desmontar asiento dentro de mueble sólido (`rescueFromSuffocation`, sube al
+  primer hueco libre; también en quit ANTES de que guarde la posición); muebles menu/commands
+  con cooldown 1s por jugador (anti-spam de comandos).
