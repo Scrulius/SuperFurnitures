@@ -35,6 +35,7 @@ public class ModelGroup {
     private boolean ready = false;
     private boolean loopAnim = true;
     private float animSpeed = 1.0f; // Animation speed multiplier (0.25x to 4x)
+    private String currentAnim; // Which named animation plays; initialized to the model's default at spawn
 
     private static final Pattern SPLIT_PATTERN = Pattern.compile("(?<=\\}),(?=\\{id:\"minecraft:)");
     private static final Pattern ID_PATTERN = Pattern.compile("^\\{id:\"minecraft:([^\"]+)\"");
@@ -120,6 +121,9 @@ public class ModelGroup {
 
     public void spawn(ModelData modelData, BlockDisplayPlugin plugin) {
         this.modelData = modelData;
+        if (currentAnim == null) {
+            currentAnim = modelData.defaultAnimName();
+        }
         if (!modelData.hasPassengers()) return;
         World world = origin.getWorld();
         if (world == null) return;
@@ -280,4 +284,6 @@ public class ModelGroup {
     public void setAnimSpeed(float animSpeed) { this.animSpeed = animSpeed; }
     public boolean isLoopAnim() { return loopAnim; }
     public void setLoopAnim(boolean loopAnim) { this.loopAnim = loopAnim; }
+    public String getCurrentAnim() { return currentAnim; }
+    public void setCurrentAnim(String currentAnim) { this.currentAnim = currentAnim; }
 }

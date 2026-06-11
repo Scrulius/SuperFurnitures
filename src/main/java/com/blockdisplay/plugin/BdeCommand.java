@@ -347,54 +347,97 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
     // ========== ANIM ==========
     private void handleAnim(Player player, String[] args) {
         if (args.length < 2) {
-            player.sendMessage(PREFIX + ChatColor.RED + "Usage: /bde anim <play|stop> [name|nearest]");
+            player.sendMessage(PREFIX + ChatColor.RED + "Usage: /bde anim <play|stop|list> ...");
             return;
         }
 
         String subAction = args[1].toLowerCase();
-        boolean isPlay = subAction.equals("play");
-        boolean isStop = subAction.equals("stop");
-        boolean loop = true;
 
-        int targetIndex = 2;
-        if (isPlay) {
-            if (args.length < 3) {
-                player.sendMessage(PREFIX + ChatColor.RED + "Usage: /bde anim play <loop|once> [name|nearest]");
-                return;
+        switch (subAction) {
+            case "play" -> {
+                if (args.length < 3) {
+                    player.sendMessage(PREFIX + ChatColor.RED + "Usage: /bde anim play <loop|once> [name|nearest] [animation]");
+                    return;
+                }
+                String mode = args[2].toLowerCase();
+                if (!mode.equals("loop") && !mode.equals("once")) {
+                    player.sendMessage(PREFIX + ChatColor.RED + "You must specify 'loop' or 'once' for the animation mode.");
+                    return;
+                }
+                boolean loop = mode.equals("loop");
+
+                ModelGroup target = (args.length >= 4) ? resolveGroupOrNearest(args[3], player) : getNearestGroup(player);
+                if (target == null) {
+                    player.sendMessage(PREFIX + ChatColor.RED + "No model found.");
+                    return;
+                }
+                ModelData data = target.getModelData();
+                if (data == null || !data.hasAnimations()) {
+                    player.sendMessage(PREFIX + ChatColor.YELLOW + "This model has no animations.");
+                    return;
+                }
+
+                // Optional named animation as the last argument
+                if (args.length >= 5) {
+                    String requested = args[4];
+                    String match = data.getAnimationNames().stream()
+                            .filter(n -> n.equalsIgnoreCase(requested))
+                            .findFirst().orElse(null);
+                    if (match == null) {
+                        player.sendMessage(PREFIX + ChatColor.RED + "Animation '" + requested + "' not found. Available: "
+                                + ChatColor.WHITE + String.join(", ", data.getAnimationNames().stream().sorted().toList()));
+                        return;
+                    }
+                    target.setCurrentAnim(match);
+                }
+
+                target.setAnimating(true);
+                target.setLoopAnim(loop);
+                plugin.getAnimationManager().resetTick(target.getGroupId());
+                plugin.getPersistenceManager().saveGroup(target);
+
+                String animSuffix = (data.getAnimationNames().size() > 1)
+                        ? ChatColor.GRAY + " [" + target.getCurrentAnim() + "]" : "";
+                player.sendMessage(PREFIX + ChatColor.GREEN + "Animation started ▶ (" + target.getAnimSpeed() + "x) Mode: "
+                        + (loop ? "Loop" : "Once") + animSuffix);
             }
-            String mode = args[2].toLowerCase();
-            if (!mode.equals("loop") && !mode.equals("once")) {
-                player.sendMessage(PREFIX + ChatColor.RED + "You must specify 'loop' or 'once' for the animation mode.");
-                return;
+            case "stop" -> {
+                ModelGroup target = (args.length >= 3) ? resolveGroupOrNearest(args[2], player) : getNearestGroup(player);
+                if (target == null) {
+                    player.sendMessage(PREFIX + ChatColor.RED + "No model found.");
+                    return;
+                }
+                target.setAnimating(false);
+                plugin.getPersistenceManager().saveGroup(target);
+                player.sendMessage(PREFIX + ChatColor.YELLOW + "Animation stopped ⏸");
             }
-            loop = mode.equals("loop");
-            targetIndex = 3;
-        }
-
-        ModelGroup target = (args.length >= targetIndex + 1) ? resolveGroupOrNearest(args[targetIndex], player) : getNearestGroup(player);
-
-        if (target == null) {
-            player.sendMessage(PREFIX + ChatColor.RED + "No model found.");
-            return;
-        }
-
-        if (target.getModelData() == null || !target.getModelData().hasAnimations()) {
-            player.sendMessage(PREFIX + ChatColor.YELLOW + "This model has no animations.");
-            return;
-        }
-
-        if (isPlay) {
-            target.setAnimating(true);
-            target.setLoopAnim(loop);
-            plugin.getAnimationManager().resetTick(target.getGroupId());
-            plugin.getPersistenceManager().saveGroup(target);
-            player.sendMessage(PREFIX + ChatColor.GREEN + "Animation started ▶ (" + target.getAnimSpeed() + "x) Mode: " + (loop ? "Loop" : "Once"));
-        } else if (isStop) {
-            target.setAnimating(false);
-            plugin.getPersistenceManager().saveGroup(target);
-            player.sendMessage(PREFIX + ChatColor.YELLOW + "Animation stopped ⏸");
-        } else {
-            player.sendMessage(PREFIX + ChatColor.RED + "Usage: /bde anim <play|stop> ...");
+            case "list" -> {
+                ModelGroup target = (args.length >= 3) ? resolveGroupOrNearest(args[2], player) : getNearestGroup(player);
+                if (target == null) {
+                    player.sendMessage(PREFIX + ChatColor.RED + "No model found.");
+                    return;
+                }
+                ModelData data = target.getModelData();
+                if (data == null || !data.hasAnimations()) {
+                    player.sendMessage(PREFIX + ChatColor.YELLOW + "This model has no animations.");
+                    return;
+                }
+                player.sendMessage(PREFIX + ChatColor.GOLD + "Animations of '" + target.getDisplayName() + "' ("
+                        + data.getAnimationNames().size() + "):");
+                for (String name : data.getAnimationNames().stream().sorted().toList()) {
+                    boolean current = name.equals(target.getCurrentAnim());
+                    TextComponent line = new TextComponent(
+                            ChatColor.WHITE + " " + name
+                            + (current ? ChatColor.GREEN + " ← current" : "")
+                            + ChatColor.DARK_GRAY + " [" + ChatColor.GREEN + "play" + ChatColor.DARK_GRAY + "]"
+                    );
+                    line.setClickEvent(new ClickEvent(ClickEvent.Action.SUGGEST_COMMAND,
+                            "/bde anim play loop " + target.getDisplayName() + " " + name));
+                    line.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new Text("Click to play this animation")));
+                    player.spigot().sendMessage(line);
+                }
+            }
+            default -> player.sendMessage(PREFIX + ChatColor.RED + "Usage: /bde anim <play|stop|list> ...");
         }
     }
 
@@ -462,10 +505,18 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.GRAY + " Yaw: " + ChatColor.WHITE + target.getYawOffset() + "°");
 
         if (data != null && data.hasAnimations()) {
+            boolean multi = data.getAnimationNames().size() > 1;
             String animLine = target.isAnimating()
                     ? ChatColor.GREEN + "Playing ▶ " + ChatColor.WHITE + target.getAnimSpeed() + "x " + ChatColor.GRAY + "(" + (target.isLoopAnim() ? "Loop" : "Once") + ")"
                     : ChatColor.YELLOW + "Stopped ⏸";
+            if (multi && target.getCurrentAnim() != null) {
+                animLine += ChatColor.GRAY + " [" + target.getCurrentAnim() + "]";
+            }
             player.sendMessage(ChatColor.GRAY + " Animation: " + animLine);
+            if (multi) {
+                player.sendMessage(ChatColor.GRAY + " Available: " + ChatColor.WHITE
+                        + String.join(", ", data.getAnimationNames().stream().sorted().toList()));
+            }
         } else {
             player.sendMessage(ChatColor.GRAY + " Animation: " + ChatColor.DARK_GRAY + "None");
         }
@@ -601,8 +652,9 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
         player.sendMessage(ChatColor.YELLOW + " /bde move <dir> <dist> [name]" + ChatColor.GRAY + " - Nudge model precisely");
         player.sendMessage(ChatColor.YELLOW + " /bde list" + ChatColor.GRAY + " - List all active models");
         player.sendMessage(ChatColor.YELLOW + " /bde rotate <yaw> [name|nearest]" + ChatColor.GRAY + " - Rotate a model");
-        player.sendMessage(ChatColor.YELLOW + " /bde anim play <loop|once> [name]" + ChatColor.GRAY + " - Play animation");
+        player.sendMessage(ChatColor.YELLOW + " /bde anim play <loop|once> [name] [anim]" + ChatColor.GRAY + " - Play animation");
         player.sendMessage(ChatColor.YELLOW + " /bde anim stop [name|nearest]" + ChatColor.GRAY + " - Stop animation");
+        player.sendMessage(ChatColor.YELLOW + " /bde anim list [name|nearest]" + ChatColor.GRAY + " - List animations");
         player.sendMessage(ChatColor.YELLOW + " /bde speed <0.25-4.0> [name]" + ChatColor.GRAY + " - Set anim speed");
         player.sendMessage(ChatColor.YELLOW + " /bde info [name|nearest]" + ChatColor.GRAY + " - Show model details");
         player.sendMessage(ChatColor.YELLOW + " /bde purge <1-10>" + ChatColor.GRAY + " - Kill all displays in radius");
@@ -656,12 +708,12 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
             }
             case "anim" -> {
                 if (args.length == 2) {
-                    return filterStartsWith(Arrays.asList("play", "stop"), args[1]);
+                    return filterStartsWith(Arrays.asList("play", "stop", "list"), args[1]);
                 }
                 if (args.length == 3) {
                     if (args[1].equalsIgnoreCase("play")) {
                         return filterStartsWith(Arrays.asList("loop", "once"), args[2]);
-                    } else if (args[1].equalsIgnoreCase("stop")) {
+                    } else if (args[1].equalsIgnoreCase("stop") || args[1].equalsIgnoreCase("list")) {
                         List<String> options = new ArrayList<>();
                         options.add("nearest");
                         options.addAll(getGroupNameSuggestions());
@@ -674,6 +726,13 @@ public class BdeCommand implements CommandExecutor, TabCompleter {
                         options.add("nearest");
                         options.addAll(getGroupNameSuggestions());
                         return filterStartsWith(options, args[3]);
+                    }
+                }
+                if (args.length == 5 && args[1].equalsIgnoreCase("play") && sender instanceof Player p) {
+                    // Suggest the actual animation names of the model chosen in args[3]
+                    ModelGroup g = resolveGroupOrNearest(args[3], p);
+                    if (g != null && g.getModelData() != null) {
+                        return filterStartsWith(g.getModelData().getAnimationNames().stream().sorted().toList(), args[4]);
                     }
                 }
             }

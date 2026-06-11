@@ -40,6 +40,7 @@ public class PersistenceManager {
         config.set(path + ".animating", group.isAnimating());
         config.set(path + ".loopAnim", group.isLoopAnim());
         config.set(path + ".animSpeed", group.getAnimSpeed());
+        config.set(path + ".anim", group.getCurrentAnim());
         save();
     }
 
@@ -102,6 +103,7 @@ public class PersistenceManager {
         boolean animating = config.getBoolean(path + ".animating", false);
         boolean loopAnim = config.getBoolean(path + ".loopAnim", true);
         float animSpeed = (float) config.getDouble(path + ".animSpeed", 1.0);
+        String animName = config.getString(path + ".anim", null);
 
         Location loc = new Location(world, x, y, z, yaw, 0);
 
@@ -109,7 +111,7 @@ public class PersistenceManager {
         ModelData snapshot = plugin.getModelManager().loadSpawnedData(groupId);
         if (snapshot != null) {
             plugin.getServer().getScheduler().runTask(plugin, () ->
-                    spawnLoaded(groupId, modelId, displayName, loc, yaw, animating, loopAnim, animSpeed, snapshot, false));
+                    spawnLoaded(groupId, modelId, displayName, loc, yaw, animating, loopAnim, animSpeed, animName, snapshot, false));
             return true;
         }
 
@@ -118,7 +120,7 @@ public class PersistenceManager {
         plugin.getModelManager().resolveModelData(modelId).thenAccept(modelData ->
                 plugin.getServer().getScheduler().runTask(plugin, () -> {
                     if (modelData != null) {
-                        spawnLoaded(groupId, modelId, displayName, loc, yaw, animating, loopAnim, animSpeed, modelData, true);
+                        spawnLoaded(groupId, modelId, displayName, loc, yaw, animating, loopAnim, animSpeed, animName, modelData, true);
                     } else {
                         plugin.getLogger().warning("Could not reload model '" + displayName + "' (" + modelId
                                 + ") - no local snapshot, and not found in library or API.");
@@ -128,7 +130,7 @@ public class PersistenceManager {
     }
 
     private void spawnLoaded(UUID groupId, String modelId, String displayName, Location loc, float yaw,
-                             boolean animating, boolean loopAnim, float animSpeed,
+                             boolean animating, boolean loopAnim, float animSpeed, String animName,
                              ModelData modelData, boolean snapshotAfter) {
         // Names must be unique among active models (commands resolve by name); old saves may
         // contain duplicates, so de-dup on load and persist the corrected name.
@@ -146,6 +148,15 @@ public class PersistenceManager {
         group.setYaw(yaw);
         group.setLoopAnim(loopAnim);
         group.setAnimSpeed(animSpeed);
+        // Restore the chosen named animation; fall back to the model's default if it vanished.
+        if (animName != null && modelData.hasAnimations()) {
+            if (modelData.getAnimationNames().contains(animName)) {
+                group.setCurrentAnim(animName);
+            } else {
+                plugin.getLogger().warning("Animation '" + animName + "' no longer exists in model '" + finalName
+                        + "'; using '" + modelData.defaultAnimName() + "'.");
+            }
+        }
         // Auto-start animation if it was animating before and has animations
         if (animating && modelData.hasAnimations()) {
             group.setAnimating(true);

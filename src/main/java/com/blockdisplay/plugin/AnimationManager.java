@@ -63,7 +63,7 @@ public class AnimationManager extends BukkitRunnable {
     /** All work for one animation tick: native actions plus any commands we could not translate. */
     private record Frame(List<FrameAction> actions, List<String> fallbackCommands) {}
 
-    private record CompiledAnim(int maxTick, Map<Integer, Frame> frames) {}
+    private record CompiledAnim(String animName, int maxTick, Map<Integer, Frame> frames) {}
 
     @Override
     public void run() {
@@ -78,14 +78,21 @@ public class AnimationManager extends BukkitRunnable {
             ModelData data = group.getModelData();
             if (data == null || !data.hasAnimations()) continue;
 
-            Map<String, List<String>> anim = data.content.datapack.anim_keyframes.get("default");
+            String animName = group.getCurrentAnim();
+            if (animName == null) animName = data.defaultAnimName();
+            Map<String, List<String>> anim = data.getAnimation(animName);
             if (anim == null) continue;
 
             World world = group.getOrigin().getWorld();
             if (world == null) continue;
 
             UUID gid = group.getGroupId();
-            CompiledAnim compiled = compiledCache.computeIfAbsent(gid, k -> compile(group, anim));
+            CompiledAnim compiled = compiledCache.get(gid);
+            if (compiled == null || !compiled.animName().equals(animName)) {
+                // First play, or the group switched to another named animation -> (re)compile.
+                compiled = compile(group, animName, anim);
+                compiledCache.put(gid, compiled);
+            }
             int maxTick = compiled.maxTick();
             if (maxTick == 0) continue;
 
@@ -151,7 +158,7 @@ public class AnimationManager extends BukkitRunnable {
      * {@link FrameAction} with its targets pre-resolved from the group's tag->UUID map;
      * anything else is wrapped for command dispatch (scoped to this group, origin baked in).
      */
-    private CompiledAnim compile(ModelGroup group, Map<String, List<String>> anim) {
+    private CompiledAnim compile(ModelGroup group, String animName, Map<String, List<String>> anim) {
         int maxTick = 0;
         Map<Integer, Frame> frames = new HashMap<>();
 
@@ -180,7 +187,7 @@ public class AnimationManager extends BukkitRunnable {
             frames.put(t, new Frame(List.copyOf(actions), List.copyOf(fallback)));
         }
 
-        return new CompiledAnim(maxTick, frames);
+        return new CompiledAnim(animName, maxTick, frames);
     }
 
     /**

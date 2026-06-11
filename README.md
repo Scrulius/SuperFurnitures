@@ -52,9 +52,11 @@ Models from block-display.com can include keyframe animations stored in their da
 
 If a keyframe ever carries data the API cannot express without server internals (e.g. swapping an `item_display`'s item mid-animation, or a non-merge command like `playsound`), that command falls back to batched silent dispatch — never partially applied. In practice block-display.com models animate only transformation, interpolation and block_state, so the fallback path stays empty.
 
-**`/bde anim play <loop|once> [name]`** — Starts playback. In `loop` mode the animation repeats indefinitely. In `once` mode it plays through and stops at the last frame.
+**`/bde anim play <loop|once> [name] [animation]`** — Starts playback. In `loop` mode the animation repeats indefinitely. In `once` mode it plays through and stops at the last frame. If the model ships multiple named animations, pass the animation name as the last argument (tab completion suggests the real names); the choice is remembered and survives restarts. Without a name, the model's `default` animation plays — or its only animation, whatever it's called.
 
 **`/bde anim stop [name]`** — Stops playback. The model freezes at its current frame.
+
+**`/bde anim list [name]`** — Lists a model's animations, marking the current one. Each entry is clickable to play it.
 
 **`/bde speed <0.25-4.0> [name]`** — Controls playback speed. At `1` the animation runs at its original speed. Values below 1 slow it down, above 1 speed it up. Uses a float accumulator so fractional speeds like `0.5` (half speed) work smoothly.
 
