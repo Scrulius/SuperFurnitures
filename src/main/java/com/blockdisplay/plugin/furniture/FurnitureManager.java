@@ -75,6 +75,28 @@ public class FurnitureManager {
         this.keyYaw = new NamespacedKey(plugin, "furniture_yaw");
         this.keySeat = new NamespacedKey(plugin, "furniture_seat");
         this.keyPreview = new NamespacedKey(plugin, "furniture_preview");
+        startSeatWatchdog();
+    }
+
+    /**
+     * Failsafe of last resort for seat stands: an empty (rider-less) seat must never outlive
+     * its rider by more than ~2s, no matter which dismount/removal path leaked it (cancelled
+     * dismount events, failed addPassenger, plugin interference...). The set is tiny — only
+     * stands spawned this session — so the sweep is effectively free.
+     */
+    private void startSeatWatchdog() {
+        plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
+            if (activeSeats.isEmpty()) return;
+            for (UUID id : new ArrayList<>(activeSeats)) {
+                Entity stand = Bukkit.getEntity(id);
+                if (stand == null) {
+                    activeSeats.remove(id);
+                } else if (stand.getPassengers().isEmpty()) {
+                    stand.remove();
+                    activeSeats.remove(id);
+                }
+            }
+        }, 40L, 40L);
     }
 
     public FurnitureRegistry getRegistry() { return registry; }
@@ -366,6 +388,20 @@ public class FurnitureManager {
                 if (b.getType() == Material.BARRIER) {
                     b.setType(Material.AIR);
                 }
+            }
+        }
+
+        // Radius-independent seat teardown: every tracked seat of this instance dies with the
+        // furniture, wherever it ended up (the 4-block sweep above could miss a stand that
+        // drifted or whose chunk geometry got weird).
+        for (UUID id : new ArrayList<>(activeSeats)) {
+            Entity stand = Bukkit.getEntity(id);
+            if (stand == null) {
+                activeSeats.remove(id);
+            } else if (instanceStr.equals(stand.getPersistentDataContainer().get(keyInstance, PersistentDataType.STRING))) {
+                stand.eject();
+                stand.remove();
+                activeSeats.remove(id);
             }
         }
 
@@ -716,13 +752,20 @@ public class FurnitureManager {
                 as.setGravity(false);
                 as.setSmall(true);
                 as.setPersistent(false); // never saved with the chunk; crash leaves nothing behind
+                as.setInvulnerable(true);
+                as.setCollidable(false);
                 PersistentDataContainer sp = as.getPersistentDataContainer();
                 sp.set(keySeat, PersistentDataType.BYTE, (byte) 1);
                 if (instanceStr != null) {
                     sp.set(keyInstance, PersistentDataType.STRING, instanceStr);
                 }
             });
-            stand.addPassenger(player);
+            if (!stand.addPassenger(player)) {
+                // Mounting can be vetoed (another plugin, dead player...): never leave the
+                // empty stand behind.
+                stand.remove();
+                return;
+            }
             activeSeats.add(stand.getUniqueId());
             return;
         }

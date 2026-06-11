@@ -38,6 +38,18 @@ el plugin renombrado migra `plugins/SuperBlocksDisplays` → `plugins/SuperFurni
   catálogo) salen como BARRier con aviso "no devuelve item". Anti-dupe: TODOS los clics/drags que
   tocan el top se cancelan (los iconos son items reales). Orden: mundo del jugador primero por
   distancia, luego otros mundos. `/furniture list|limit` siguen como salida de texto.
+- **Asientos a prueba de fugas (v1.3.2)**: el bug real del usuario era el **stand de asiento**
+  (no el maniquí): algún camino de desmontaje lo dejaba vivo, invisible y matable (soltaba XP —
+  de otro plugin del server reaccionando al kill, los stands no dan XP vanilla). Cierre total:
+  **watchdog cada 40 ticks** (`startSeatWatchdog`: cualquier stand de `activeSeats` sin pasajero
+  muere en ≤2s, pase lo que pase con los eventos), `removeFurniture` barre además los asientos
+  trackeados por instance (independiente del radio), `addPassenger` fallido elimina el stand en
+  el acto, y el stand spawn con `setInvulnerable+setCollidable(false)`. ⚠️ NO depender solo de
+  `EntityDismountEvent` para limpiar asientos — el watchdog es la garantía.
+- **⚠️ Gotcha PowerShell 5.1 (encoding)**: NUNCA editar ymls UTF-8 del server con
+  `Get-Content`/`Set-Content` (lee ANSI sin BOM y corrompe los acentos → SnakeYAML revienta con
+  "unacceptable code point"). Usar las herramientas Read/Write o `[System.IO.File]` con UTF8.
+  El `furniture.yml` del server se regeneró en ASCII puro tras corromperse así.
 - **Pase anti-restos (v1.3.1)**: TODA entity del plugin lleva tag PDC y está triple-protegida —
   los previews del editor de asientos (maniquí + stand) llevan `keyPreview` (antes iban SIN tag,
   solo tracking en memoria: cualquier camino de limpieza perdido dejaba un maniquí matable — en
