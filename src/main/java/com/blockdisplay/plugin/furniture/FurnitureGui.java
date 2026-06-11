@@ -6,7 +6,7 @@ import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
-import org.bukkit.World;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
@@ -22,12 +22,18 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
- * Read-only paginated GUI of the viewer's placed furniture (/furniture): one icon per placement
- * (the real MythicMobs item, so the player sees the furniture itself), lore with type, world,
- * coordinates and distance, and click = remote pickup (FurnitureManager.pickupRemote loads the
- * chunk and reuses the normal pickup path: ownership, item back, sounds).
+ * Paginated furniture GUI with two modes sharing one renderer:
+ *
+ * - Player mode (/furniture): the viewer's own furniture, one icon per placement (the real
+ *   furniture item, so the player sees the furniture itself), lore with type/world/coords/
+ *   distance, click = remote pickup (FurnitureManager.pickupRemote loads the chunk and reuses
+ *   the normal pickup path: ownership, item back, sounds).
+ * - Admin mode (/sf gui [jugador]): EVERY placement on the server (or one player's), owner shown
+ *   in the lore, click = teleport to the furniture, shift+click = remote pickup (needs the usual
+ *   bypass permission for furniture that isn't yours).
  *
  * Anti-dupe: every click/drag touching the top inventory is cancelled — the icons are real
  * items, nothing may ever leave the GUI except through pickupRemote.
@@ -51,6 +57,9 @@ public class FurnitureGui implements Listener {
     private static class Holder implements InventoryHolder {
         Inventory inv;
         int page;
+        boolean admin;
+        String filterOwner;     // admin mode: owner uuid filter, or null = whole server
+        String filterName;      // display name of the filter (resolved once)
         final List<String> slotInstances = new ArrayList<>();  // index = slot 0..44
 
         @Override
@@ -59,14 +68,30 @@ public class FurnitureGui implements Listener {
         }
     }
 
+    /** Player mode: the viewer's own furniture. */
     public void open(Player player, int page) {
-        List<Map.Entry<String, PlacementIndex.Placement>> entries = sortedEntries(player);
+        render(player, page, false, null, null);
+    }
+
+    /** Admin mode: every placement (filterOwnerUuid null) or one player's. */
+    public void openAdmin(Player admin, int page, String filterOwnerUuid, String filterOwnerName) {
+        render(admin, page, true, filterOwnerUuid, filterOwnerName);
+    }
+
+    private void render(Player player, int page, boolean admin, String filterOwner, String filterName) {
+        List<Map.Entry<String, PlacementIndex.Placement>> entries = sortedEntries(player, admin, filterOwner);
         int pages = Math.max(1, (entries.size() + PAGE_SIZE - 1) / PAGE_SIZE);
         page = Math.max(0, Math.min(page, pages - 1));
 
         Holder holder = new Holder();
         holder.page = page;
-        Inventory inv = Bukkit.createInventory(holder, SIZE, Component.text("Tus muebles ", NamedTextColor.DARK_GRAY)
+        holder.admin = admin;
+        holder.filterOwner = filterOwner;
+        holder.filterName = filterName;
+        String title = admin
+                ? (filterName != null ? "Muebles de " + filterName + " " : "Muebles del server ")
+                : "Tus muebles ";
+        Inventory inv = Bukkit.createInventory(holder, SIZE, Component.text(title, NamedTextColor.DARK_GRAY)
                 .append(Component.text("(" + entries.size() + ")", NamedTextColor.GOLD))
                 .append(Component.text("  pág. " + (page + 1) + "/" + pages, NamedTextColor.GRAY)));
         holder.inv = inv;
@@ -76,7 +101,7 @@ public class FurnitureGui implements Listener {
             int idx = page * PAGE_SIZE + i;
             if (idx >= entries.size()) break;
             Map.Entry<String, PlacementIndex.Placement> e = entries.get(idx);
-            inv.setItem(i, buildIcon(e.getValue(), eye));
+            inv.setItem(i, buildIcon(e.getValue(), eye, admin));
             holder.slotInstances.add(e.getKey());
         }
 
@@ -94,7 +119,7 @@ public class FurnitureGui implements Listener {
                     Component.text("Página siguiente ▶", NamedTextColor.YELLOW).decoration(TextDecoration.ITALIC, false),
                     List.of()));
         }
-        inv.setItem(SLOT_INFO, buildInfo(player, entries.size()));
+        inv.setItem(SLOT_INFO, admin ? buildAdminInfo(entries.size(), filterName) : buildInfo(player, entries.size()));
         inv.setItem(SLOT_CLOSE, named(new ItemStack(Material.BARRIER),
                 Component.text("Cerrar", NamedTextColor.RED).decoration(TextDecoration.ITALIC, false),
                 List.of()));
@@ -103,9 +128,16 @@ public class FurnitureGui implements Listener {
     }
 
     /** Player's world first (nearest first), then other worlds alphabetically, then by type. */
-    private List<Map.Entry<String, PlacementIndex.Placement>> sortedEntries(Player player) {
-        List<Map.Entry<String, PlacementIndex.Placement>> entries = new ArrayList<>(
-                manager.getIndex().byOwnerWithIds(player.getUniqueId().toString()).entrySet());
+    private List<Map.Entry<String, PlacementIndex.Placement>> sortedEntries(Player player, boolean admin, String filterOwner) {
+        Map<String, PlacementIndex.Placement> source;
+        if (admin) {
+            source = (filterOwner != null)
+                    ? manager.getIndex().byOwnerWithIds(filterOwner)
+                    : manager.getIndex().all();
+        } else {
+            source = manager.getIndex().byOwnerWithIds(player.getUniqueId().toString());
+        }
+        List<Map.Entry<String, PlacementIndex.Placement>> entries = new ArrayList<>(source.entrySet());
         String myWorld = player.getWorld().getName();
         Location me = player.getLocation();
         entries.sort(Comparator
@@ -121,15 +153,15 @@ public class FurnitureGui implements Listener {
         return entries;
     }
 
-    private ItemStack buildIcon(PlacementIndex.Placement p, Location viewer) {
+    private ItemStack buildIcon(PlacementIndex.Placement p, Location viewer, boolean admin) {
         FurnitureType type = manager.getRegistry().byId(p.type());
-        ItemStack icon = (type != null) ? manager.getMythic().getItem(type.mythicItem) : null;
+        ItemStack icon = manager.itemFor(type);
         boolean orphan = (icon == null);
         if (orphan) {
             icon = new ItemStack(Material.BARRIER);
         }
 
-        // Title: the MythicMobs item's own display name IS the furniture's name; keep it.
+        // Title: the furniture item's own display name IS the furniture's name; keep it.
         // Orphans (type removed from the catalog / MM item gone) get a fallback title.
         Component title = null;
         ItemMeta meta = icon.getItemMeta();
@@ -143,6 +175,9 @@ public class FurnitureGui implements Listener {
 
         List<Component> lore = new ArrayList<>();
         lore.add(line("Tipo: ", p.type()));
+        if (admin) {
+            lore.add(line("Dueño: ", ownerName(p.owner())));
+        }
         lore.add(line("Mundo: ", p.world()));
         lore.add(line("Coordenadas: ", String.format(Locale.ROOT, "%.0f, %.0f, %.0f", p.x(), p.y(), p.z())));
         if (p.world().equals(viewer.getWorld().getName())) {
@@ -159,9 +194,17 @@ public class FurnitureGui implements Listener {
             lore.add(Component.text("al recogerlo NO devuelve item.", NamedTextColor.RED)
                     .decoration(TextDecoration.ITALIC, false));
         }
-        lore.add(Component.text("▶ Clic para recogerlo", NamedTextColor.YELLOW)
-                .decoration(TextDecoration.ITALIC, false)
-                .append(Component.text(" (va a tu inventario)", NamedTextColor.GRAY)));
+        if (admin) {
+            lore.add(Component.text("▶ Clic: teletransportarte", NamedTextColor.YELLOW)
+                    .decoration(TextDecoration.ITALIC, false));
+            lore.add(Component.text("▶ Shift+Clic: recogerlo", NamedTextColor.YELLOW)
+                    .decoration(TextDecoration.ITALIC, false)
+                    .append(Component.text(" (va a tu inventario)", NamedTextColor.GRAY)));
+        } else {
+            lore.add(Component.text("▶ Clic para recogerlo", NamedTextColor.YELLOW)
+                    .decoration(TextDecoration.ITALIC, false)
+                    .append(Component.text(" (va a tu inventario)", NamedTextColor.GRAY)));
+        }
 
         return named(icon, title, lore);
     }
@@ -178,6 +221,28 @@ public class FurnitureGui implements Listener {
                                 .decoration(TextDecoration.ITALIC, false),
                         Component.text("recogerlo a distancia.", NamedTextColor.GRAY)
                                 .decoration(TextDecoration.ITALIC, false)));
+    }
+
+    private ItemStack buildAdminInfo(int placed, String filterName) {
+        return named(new ItemStack(Material.SPYGLASS),
+                Component.text("Vista de admin", NamedTextColor.GOLD).decoration(TextDecoration.ITALIC, false),
+                List.of(
+                        line("Muebles listados: ", String.valueOf(placed)),
+                        line("Filtro: ", filterName != null ? filterName : "todo el server"),
+                        Component.empty(),
+                        Component.text("Clic = teleport al mueble.", NamedTextColor.GRAY)
+                                .decoration(TextDecoration.ITALIC, false),
+                        Component.text("Shift+Clic = recogerlo.", NamedTextColor.GRAY)
+                                .decoration(TextDecoration.ITALIC, false)));
+    }
+
+    private static String ownerName(String ownerUuid) {
+        try {
+            OfflinePlayer op = Bukkit.getOfflinePlayer(UUID.fromString(ownerUuid));
+            return op.getName() != null ? op.getName() : ownerUuid;
+        } catch (IllegalArgumentException e) {
+            return ownerUuid;
+        }
     }
 
     private static Component line(String label, String value) {
@@ -215,19 +280,37 @@ public class FurnitureGui implements Listener {
             click(player);
         } else if (slot == SLOT_PREV && e.getCurrentItem() != null && e.getCurrentItem().getType() == Material.ARROW) {
             click(player);
-            open(player, holder.page - 1);
+            render(player, holder.page - 1, holder.admin, holder.filterOwner, holder.filterName);
         } else if (slot == SLOT_NEXT && e.getCurrentItem() != null && e.getCurrentItem().getType() == Material.ARROW) {
             click(player);
-            open(player, holder.page + 1);
+            render(player, holder.page + 1, holder.admin, holder.filterOwner, holder.filterName);
         } else if (slot < holder.slotInstances.size()) {
-            // The callback fires when the index actually changed (the chunk may need a few
-            // ticks to stream its entities in); re-render only if the GUI is still on screen.
-            manager.pickupRemote(player, holder.slotInstances.get(slot), () -> {
-                if (player.isOnline()
-                        && player.getOpenInventory().getTopInventory().getHolder() instanceof Holder h) {
-                    open(player, h.page);
+            String instance = holder.slotInstances.get(slot);
+            if (holder.admin) {
+                // The GUI only opens from /sf, but a session could outlive a demotion.
+                if (!player.hasPermission("superfurnitures.admin")) {
+                    player.closeInventory();
+                    return;
                 }
-            });
+                if (e.isShiftClick()) {
+                    manager.pickupRemote(player, instance, () -> refreshIfOpen(player));
+                } else {
+                    player.closeInventory();
+                    click(player);
+                    manager.teleportTo(player, instance);
+                }
+            } else {
+                // The callback fires when the index actually changed (the chunk may need a few
+                // ticks to stream its entities in); re-render only if the GUI is still on screen.
+                manager.pickupRemote(player, instance, () -> refreshIfOpen(player));
+            }
+        }
+    }
+
+    private void refreshIfOpen(Player player) {
+        if (player.isOnline()
+                && player.getOpenInventory().getTopInventory().getHolder() instanceof Holder h) {
+            render(player, h.page, h.admin, h.filterOwner, h.filterName);
         }
     }
 

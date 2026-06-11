@@ -46,11 +46,26 @@ public class FurnitureListener implements Listener {
         if (e.getAction() != Action.RIGHT_CLICK_BLOCK || e.getHand() != EquipmentSlot.HAND) return;
         ItemStack item = e.getItem();
         if (item == null || e.getClickedBlock() == null) return;
-        if (!manager.getMythic().isAvailable()) return;
 
-        String mythicType = manager.getMythic().getMythicType(item);
-        if (mythicType == null) return;
-        FurnitureType type = manager.getRegistry().byMythicItem(mythicType);
+        // Native items first (PDC tag, no MythicMobs involved), MythicMobs items as fallback.
+        FurnitureType type = null;
+        String nativeId = manager.getItems().typeIdOf(item);
+        if (nativeId != null) {
+            type = manager.getRegistry().byId(nativeId);
+            if (type == null) {
+                // Still OUR item even if the type left the catalog: keep it inert (a PLAYER_HEAD
+                // furniture item must never place as a vanilla head block).
+                e.setCancelled(true);
+                manager.bar(e.getPlayer(), "Este mueble ya no está en el catálogo (avisa a un admin).",
+                        NamedTextColor.YELLOW);
+                return;
+            }
+        } else if (manager.getMythic().isAvailable()) {
+            String mythicType = manager.getMythic().getMythicType(item);
+            if (mythicType != null) {
+                type = manager.getRegistry().byMythicItem(mythicType);
+            }
+        }
         if (type == null) return;
 
         // It IS a furniture item: never let it act as a vanilla block/item (e.g. player heads place)

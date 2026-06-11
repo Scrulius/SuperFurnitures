@@ -30,13 +30,13 @@ public class MythicHook {
                 this.getItemStack = find(itemManager, "getItemStack", String.class);
                 ok = (getMythicTypeFromItem != null && getItemStack != null);
                 if (!ok) {
-                    plugin.getLogger().warning("MythicMobs item API methods not found - furniture disabled.");
+                    plugin.getLogger().warning("MythicMobs item API methods not found - los muebles con 'mythic-item' no funcionarán (los de 'item:' nativo sí).");
                 }
             } catch (Exception e) {
-                plugin.getLogger().warning("Could not hook into MythicMobs (" + e.getMessage() + ") - furniture disabled.");
+                plugin.getLogger().warning("Could not hook into MythicMobs (" + e.getMessage() + ") - los muebles con 'mythic-item' no funcionarán (los de 'item:' nativo sí).");
             }
         } else {
-            plugin.getLogger().info("MythicMobs not present - furniture system disabled.");
+            plugin.getLogger().info("MythicMobs no está: solo funcionarán los muebles con 'item:' nativo.");
         }
         this.available = ok;
     }

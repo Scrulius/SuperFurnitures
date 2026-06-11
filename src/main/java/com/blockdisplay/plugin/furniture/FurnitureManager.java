@@ -43,6 +43,7 @@ public class FurnitureManager {
     private final FurnitureRegistry registry;
     private final PlacementIndex index;
     private final MythicHook mythic;
+    private final FurnitureItems items;
 
     // PDC keys
     public final NamespacedKey keyInstance;
@@ -62,11 +63,13 @@ public class FurnitureManager {
     private static final long INTERACT_COOLDOWN_MS = 1000;
     private final Map<UUID, Long> rotateCooldown = new HashMap<>();
 
-    public FurnitureManager(BlockDisplayPlugin plugin, FurnitureRegistry registry, PlacementIndex index, MythicHook mythic) {
+    public FurnitureManager(BlockDisplayPlugin plugin, FurnitureRegistry registry, PlacementIndex index,
+                            MythicHook mythic, FurnitureItems items) {
         this.plugin = plugin;
         this.registry = registry;
         this.index = index;
         this.mythic = mythic;
+        this.items = items;
         this.keyInstance = new NamespacedKey(plugin, "furniture_instance");
         this.keyType = new NamespacedKey(plugin, "furniture_type");
         this.keyOwner = new NamespacedKey(plugin, "furniture_owner");
@@ -102,6 +105,17 @@ public class FurnitureManager {
     public FurnitureRegistry getRegistry() { return registry; }
     public PlacementIndex getIndex() { return index; }
     public MythicHook getMythic() { return mythic; }
+    public FurnitureItems getItems() { return items; }
+
+    /**
+     * The placeable item of a furniture type: native (built by the plugin) when the type defines
+     * an item spec, the MythicMobs item otherwise. Null only if the MM item no longer resolves.
+     */
+    public ItemStack itemFor(FurnitureType type) {
+        if (type == null) return null;
+        if (type.item != null) return items.build(type);
+        return mythic.getItem(type.mythicItem);
+    }
 
     // ==================== PLACE ====================
 
@@ -249,7 +263,8 @@ public class FurnitureManager {
         }
 
         playSound(world, origin, type.placeSound);
-        bar(player, "Mueble colocado.", NamedTextColor.GREEN);
+        String quota = (playerLimit < 0) ? "" : " (" + index.countByOwner(ownerStr) + "/" + playerLimit + ")";
+        bar(player, "Mueble colocado." + quota, NamedTextColor.GREEN);
         return true;
     }
 
@@ -316,7 +331,7 @@ public class FurnitureManager {
         if (type == null) {
             bar(player, "Este mueble fue eliminado del catálogo: se retira sin devolver item.", NamedTextColor.YELLOW);
         } else {
-            ItemStack item = mythic.getItem(type.mythicItem);
+            ItemStack item = itemFor(type);
             if (item != null) {
                 Map<Integer, ItemStack> leftover = player.getInventory().addItem(item);
                 for (ItemStack rest : leftover.values()) {
@@ -479,6 +494,31 @@ public class FurnitureManager {
         }
         plugin.getServer().getScheduler().runTaskLater(plugin,
                 () -> resolveAndPickup(player, instance, chunk, attempt + 1, onChanged), 5L);
+    }
+
+    /**
+     * Admin: teleport to a placed furniture (admin GUI). teleportAsync loads the destination
+     * chunk off the main thread; if the spot is inside the furniture's solid shell, the usual
+     * anti-suffocation rescue lifts the admin to the first free spot.
+     */
+    public void teleportTo(Player player, String instance) {
+        PlacementIndex.Placement p = index.get(instance);
+        if (p == null) {
+            bar(player, "Ese mueble ya no está en el índice.", NamedTextColor.YELLOW);
+            return;
+        }
+        World world = Bukkit.getWorld(p.world());
+        if (world == null) {
+            bar(player, "El mundo '" + p.world() + "' no está cargado.", NamedTextColor.RED);
+            return;
+        }
+        Location dest = new Location(world, p.x(), p.y(), p.z(), player.getLocation().getYaw(), 0f);
+        player.teleportAsync(dest).thenAccept(ok -> {
+            if (ok && player.isOnline()) {
+                rescueFromSuffocation(player);
+                bar(player, "Teletransportado al mueble (" + p.type() + ").", NamedTextColor.GREEN);
+            }
+        });
     }
 
     /**

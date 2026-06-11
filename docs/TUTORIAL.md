@@ -6,8 +6,8 @@ El plugin tiene **dos caras** que comparten motor:
    [block-display.com](https://block-display.com), colocarlos como decoración del server,
    moverlos con precisión y animarlos.
 2. **Sistema de muebles para jugadores** (`/sf` + `/furniture`) — convertir esos modelos en
-   **items de MythicMobs** que los jugadores colocan, usan (sentarse/menús/comandos), giran
-   y recogen, con protección y límites.
+   **items colocables** (nativos del plugin o de MythicMobs) que los jugadores colocan, usan
+   (sentarse/menús/comandos), giran y recogen, con protección y límites.
 
 Regla mental: **`/bde` = decoración del admin** (modelos "sueltos" gestionados por ti);
 **muebles = objetos de jugador** (con dueño, indestructibles, sobreviven solos con el chunk).
@@ -73,10 +73,15 @@ Los modelos admin persisten en `data/<grupo>.json` y se re-spawnean solos al arr
 /bde download abc123 Silla
 ```
 
-### Paso 2: el item de MythicMobs
+### Paso 2: el item (nativo o MythicMobs)
 
-En `plugins/MythicMobs/Items/` (o tu archivo de items). Cualquier item MM sirve; lo ideal es
-una **player head con textura base64** para que el item ya "parezca" el mueble en el inventario:
+**Opción A — item NATIVO (recomendado, sin MythicMobs):** lo define el propio `furniture.yml`
+en la sección `item:` del mueble (paso 3). El plugin lo crea, lo reconoce por su tag interno
+(PDC) y lo devuelve al recoger. Lo ideal es una **player head con textura base64** (de
+minecraft-heads.com) para que el item ya "parezca" el mueble en el inventario — apariencia
+100% custom sin resource pack.
+
+**Opción B — item de MythicMobs:** en `plugins/MythicMobs/Items/`:
 
 ```yaml
 SillaItem:
@@ -85,6 +90,8 @@ SillaItem:
 ```
 
 No necesita opciones especiales: el plugin intercepta el clic antes de que el item actúe.
+Si un mueble define las dos opciones, el plugin da/devuelve el nativo, pero los items MM
+antiguos en circulación siguen funcionando (migración suave).
 
 ### Paso 3: la entrada en `plugins/SuperFurnitures/furniture.yml`
 
@@ -92,7 +99,13 @@ No necesita opciones especiales: el plugin intercepta el clic antes de que el it
 furniture:
   silla:
     model: Silla              # nombre en la library (paso 1)
-    mythic-item: SillaItem    # item MM (paso 2)
+    item:                     # item nativo (opción A)…
+      material: PLAYER_HEAD   #   (material opcional si hay head-texture)
+      name: "&6Silla de madera"
+      lore: [ "&7Clic derecho para colocarla" ]
+      head-texture: "eyJ0ZXh0dXJlcyI6..."
+      glow: false
+    # mythic-item: SillaItem  # …o item MM (opción B)
     anchor: floor             # floor | wall | ceiling
     solid: true               # true = colisión real (bloques barrier invisibles)
     animated: false           # true = anima en loop mientras esté colocada
@@ -113,8 +126,9 @@ furniture:
 ```
 
 ```
-/sf reload     ← debe decir "1 mueble(s) registrados" (si no, el motivo sale en consola)
+/sf reload     ← debe decir "1 mueble(s)" — los errores de config salen AHÍ MISMO (y en consola)
 /sf types      ← verifica el binding modelo↔item
+/sf check      ← chequeo de salud completo: catálogo, items irresolubles, índice
 ```
 
 ### Paso 4: colócalo y afínalo MIRÁNDOLO (los 3 editores in-game)
@@ -163,10 +177,13 @@ asiento dentro de un mueble sólido, el plugin te saca al primer hueco libre (si
 ## Parte 5 — Administración del día a día
 
 ```
-/sf list                ← resumen de TODOS los muebles del server, por dueño
+/sf gui                 ← GUI de TODOS los muebles del server: clic = teleport, shift+clic = recoger
+/sf gui <jugador>       ← lo mismo filtrado a un jugador
+/sf list                ← resumen de TODOS los muebles del server, por dueño (texto)
 /sf list <jugador>      ← el detalle de uno (tipo + coordenadas + mundo)
+/sf check               ← chequeo de salud: errores de catálogo, items rotos, índice
 /sf purge <jugador>     ← borra todos los suyos (carga chunks si hace falta)
-/sf give <mueble> [jugador]
+/sf give <mueble> [jugador] [cantidad]
 ```
 
 **Auto-mantenimiento que no tienes que hacer tú**: el índice (`placements.json`) se cura solo
@@ -199,8 +216,8 @@ max-parts-warn: 100        # aviso si un modelo es demasiado pesado
 
 ```
 /bde download abc123 Silla        ← 1. modelo a la library
-(item SillaItem en MythicMobs)    ← 2. el item
-(entrada "silla" en furniture.yml)← 3. el binding
+(entrada "silla" en furniture.yml ← 2+3. item nativo (item:) + binding, todo en un sitio
+ con su sección item:)
 /sf reload                        ← 4. cargar
 /sf give silla                    ← 5. dártelo y colocarlo
 /sf seats → add → save            ← 6. plazas con maniquís (y /sf footprint, /sf hitbox si toca)

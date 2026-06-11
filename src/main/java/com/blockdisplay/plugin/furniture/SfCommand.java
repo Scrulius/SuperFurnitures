@@ -35,21 +35,25 @@ public class SfCommand implements CommandExecutor, TabCompleter {
     private final FurnitureManager manager;
     private final SeatEditor seatEditor;
     private final FootprintEditor footprintEditor;
+    private final FurnitureGui gui;
 
     public SfCommand(BlockDisplayPlugin plugin, FurnitureManager manager,
-                     SeatEditor seatEditor, FootprintEditor footprintEditor) {
+                     SeatEditor seatEditor, FootprintEditor footprintEditor, FurnitureGui gui) {
         this.plugin = plugin;
         this.manager = manager;
         this.seatEditor = seatEditor;
         this.footprintEditor = footprintEditor;
+        this.gui = gui;
     }
 
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command, @NotNull String label, @NotNull String[] args) {
         if (args.length == 0) {
-            sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf give <mueble> [jugador]" + ChatColor.GRAY + " - Dar el item de un mueble");
+            sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf give <mueble> [jugador] [cantidad]" + ChatColor.GRAY + " - Dar el item de un mueble");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf types" + ChatColor.GRAY + " - Listar muebles registrados");
+            sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf gui [jugador]" + ChatColor.GRAY + " - GUI de todos los muebles (clic = tp, shift = recoger)");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf list [jugador]" + ChatColor.GRAY + " - Muebles colocados (todos o de un jugador)");
+            sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf check" + ChatColor.GRAY + " - Chequeo de salud: catálogo, items e índice");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf purge <jugador>" + ChatColor.GRAY + " - Eliminar TODOS los muebles de un jugador");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf seats" + ChatColor.GRAY + " - Editor de asientos con maniquís (mueble cercano)");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf footprint" + ChatColor.GRAY + " - Editor de huella sólida a golpes (mueble cercano)");
@@ -63,7 +67,7 @@ public class SfCommand implements CommandExecutor, TabCompleter {
         switch (args[0].toLowerCase()) {
             case "give" -> {
                 if (args.length < 2) {
-                    sender.sendMessage(PREFIX + ChatColor.RED + "Uso: /sf give <mueble> [jugador]");
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Uso: /sf give <mueble> [jugador] [cantidad]");
                     return true;
                 }
                 FurnitureType type = manager.getRegistry().byId(args[1]);
@@ -81,17 +85,28 @@ public class SfCommand implements CommandExecutor, TabCompleter {
                 } else if (sender instanceof Player p) {
                     target = p;
                 } else {
-                    sender.sendMessage(PREFIX + ChatColor.RED + "Desde consola indica el jugador: /sf give <mueble> <jugador>");
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Desde consola indica el jugador: /sf give <mueble> <jugador> [cantidad]");
                     return true;
                 }
-                ItemStack item = manager.getMythic().getItem(type.mythicItem);
+                int amount = 1;
+                if (args.length >= 4) {
+                    try {
+                        amount = Math.max(1, Math.min(64, Integer.parseInt(args[3])));
+                    } catch (NumberFormatException e) {
+                        sender.sendMessage(PREFIX + ChatColor.RED + "Cantidad inválida: " + args[3]);
+                        return true;
+                    }
+                }
+                ItemStack item = manager.itemFor(type);
                 if (item == null) {
                     sender.sendMessage(PREFIX + ChatColor.RED + "El item MM '" + type.mythicItem + "' no existe (¿MythicMobs cargado y el item creado?).");
                     return true;
                 }
+                item.setAmount(amount);
                 target.getInventory().addItem(item).values()
                         .forEach(rest -> target.getWorld().dropItemNaturally(target.getLocation(), rest));
-                sender.sendMessage(PREFIX + ChatColor.GREEN + "Item de '" + type.id + "' dado a " + target.getName() + ".");
+                sender.sendMessage(PREFIX + ChatColor.GREEN + "Item de '" + type.id + "'"
+                        + (amount > 1 ? " ×" + amount : "") + " dado a " + target.getName() + ".");
             }
             case "types" -> {
                 var all = manager.getRegistry().all();
@@ -101,15 +116,35 @@ public class SfCommand implements CommandExecutor, TabCompleter {
                 }
                 sender.sendMessage(PREFIX + ChatColor.GOLD + "Muebles registrados (" + all.size() + "):");
                 for (FurnitureType t : all) {
+                    String itemDesc = (t.item != null)
+                            ? "nativo (" + t.item.material.name().toLowerCase() + ")"
+                            : "MM " + t.mythicItem;
                     sender.sendMessage(ChatColor.WHITE + " " + t.id
                             + ChatColor.DARK_GRAY + " (modelo " + ChatColor.GRAY + t.model
-                            + ChatColor.DARK_GRAY + ", item " + ChatColor.GRAY + t.mythicItem
+                            + ChatColor.DARK_GRAY + ", item " + ChatColor.GRAY + itemDesc
                             + ChatColor.DARK_GRAY + ", " + ChatColor.GRAY + t.anchor.name().toLowerCase()
                             + (t.animated ? ChatColor.AQUA + ", animado" : "")
                             + (t.solid ? ChatColor.YELLOW + ", sólido" : "")
                             + ChatColor.DARK_GRAY + ")");
                 }
             }
+            case "gui" -> {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "El GUI es in-game; desde consola usa /sf list.");
+                    return true;
+                }
+                if (args.length >= 2) {
+                    OfflinePlayer target = resolvePlayer(args[1]);
+                    if (target == null) {
+                        sender.sendMessage(PREFIX + ChatColor.RED + "Jugador '" + args[1] + "' desconocido (nunca ha entrado al server).");
+                        return true;
+                    }
+                    gui.openAdmin(player, 0, target.getUniqueId().toString(), target.getName());
+                } else {
+                    gui.openAdmin(player, 0, null, null);
+                }
+            }
+            case "check" -> runCheck(sender);
             case "list" -> {
                 if (args.length >= 2) {
                     OfflinePlayer target = resolvePlayer(args[1]);
@@ -314,8 +349,18 @@ public class SfCommand implements CommandExecutor, TabCompleter {
             }
             case "reload" -> {
                 manager.getRegistry().load();
+                List<String> errors = manager.getRegistry().lastErrors();
                 sender.sendMessage(PREFIX + ChatColor.GREEN + "furniture.yml recargado: "
-                        + manager.getRegistry().all().size() + " mueble(s).");
+                        + manager.getRegistry().all().size() + " mueble(s)"
+                        + (errors.isEmpty() ? "." : ChatColor.RED + " — " + errors.size() + " error(es):"));
+                int shown = 0;
+                for (String error : errors) {
+                    if (shown++ >= 10) {
+                        sender.sendMessage(ChatColor.GRAY + " ... y " + (errors.size() - 10) + " más (consola).");
+                        break;
+                    }
+                    sender.sendMessage(ChatColor.RED + " ✖ " + error);
+                }
             }
             default -> sender.sendMessage(PREFIX + ChatColor.RED + "Subcomando desconocido. Usa /sf");
         }
@@ -326,7 +371,7 @@ public class SfCommand implements CommandExecutor, TabCompleter {
     @Nullable
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String[] args) {
         if (args.length == 1) {
-            return filter(Arrays.asList("give", "types", "list", "purge", "seats", "footprint", "hitbox", "show", "info", "reload"), args[0]);
+            return filter(Arrays.asList("give", "types", "gui", "list", "check", "purge", "seats", "footprint", "hitbox", "show", "info", "reload"), args[0]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("seats")) {
             return filter(Arrays.asList("add", "move", "remove", "list", "save", "cancel"), args[1]);
@@ -343,10 +388,84 @@ public class SfCommand implements CommandExecutor, TabCompleter {
         if (args.length == 3 && args[0].equalsIgnoreCase("give")) {
             return null; // jugadores online
         }
-        if (args.length == 2 && (args[0].equalsIgnoreCase("list") || args[0].equalsIgnoreCase("purge"))) {
+        if (args.length == 2 && (args[0].equalsIgnoreCase("list") || args[0].equalsIgnoreCase("purge")
+                || args[0].equalsIgnoreCase("gui"))) {
             return null; // jugadores online
         }
         return Collections.emptyList();
+    }
+
+    /**
+     * Health check (/sf check): load errors of the catalog, per-type runtime issues (item that
+     * can't be built, menu/commands interactions with nothing configured, inert footprints),
+     * and index sanity (totals per world, entries in missing worlds, orphan types).
+     */
+    private void runCheck(CommandSender sender) {
+        var registry = manager.getRegistry();
+
+        // --- Catalog ---
+        List<String> loadErrors = registry.lastErrors();
+        sender.sendMessage(PREFIX + ChatColor.GOLD + "Catálogo: " + ChatColor.WHITE + registry.all().size()
+                + ChatColor.GOLD + " mueble(s) válidos, " + (loadErrors.isEmpty() ? ChatColor.GREEN : ChatColor.RED)
+                + loadErrors.size() + " error(es) de carga.");
+        for (String error : loadErrors) {
+            sender.sendMessage(ChatColor.RED + " ✖ " + error);
+        }
+
+        int warns = 0;
+        for (FurnitureType t : registry.all()) {
+            List<String> issues = new ArrayList<>();
+            if (manager.itemFor(t) == null) {
+                issues.add("su item no se puede crear (MM '" + t.mythicItem + "' no existe o MythicMobs no está)");
+            }
+            if (t.interactionType == FurnitureType.InteractionType.MENU && t.menu.isBlank()) {
+                issues.add("interaction.type: menu pero 'menu' está vacío (el clic no hará nada)");
+            }
+            if (t.interactionType == FurnitureType.InteractionType.COMMANDS && t.commands.isEmpty()) {
+                issues.add("interaction.type: commands pero 'commands' está vacío (el clic no hará nada)");
+            }
+            if (!t.footprint.isEmpty() && !t.solid) {
+                issues.add("tiene footprint pero solid: false (la huella no se aplica)");
+            }
+            for (String issue : issues) {
+                sender.sendMessage(ChatColor.YELLOW + " ⚠ " + t.id + ": " + issue);
+                warns++;
+            }
+        }
+        if (loadErrors.isEmpty() && warns == 0) {
+            sender.sendMessage(ChatColor.GREEN + " ✔ Catálogo sin problemas.");
+        }
+
+        // --- Index ---
+        Map<String, PlacementIndex.Placement> all = manager.getIndex().all();
+        Map<String, Integer> byWorld = new HashMap<>();
+        Map<String, Integer> orphanTypes = new HashMap<>();
+        int missingWorld = 0;
+        for (PlacementIndex.Placement p : all.values()) {
+            byWorld.merge(p.world(), 1, Integer::sum);
+            if (Bukkit.getWorld(p.world()) == null) missingWorld++;
+            if (registry.byId(p.type()) == null) orphanTypes.merge(p.type(), 1, Integer::sum);
+        }
+        StringBuilder worlds = new StringBuilder();
+        byWorld.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .forEach(e -> worlds.append(worlds.length() > 0 ? ", " : "")
+                        .append(e.getKey()).append(": ").append(e.getValue()));
+        sender.sendMessage(PREFIX + ChatColor.GOLD + "Índice: " + ChatColor.WHITE + all.size()
+                + ChatColor.GOLD + " mueble(s) colocados" + ChatColor.DARK_GRAY
+                + (worlds.length() > 0 ? " (" + worlds + ")" : ""));
+        if (missingWorld > 0) {
+            sender.sendMessage(ChatColor.YELLOW + " ⚠ " + missingWorld
+                    + " en mundos que no están cargados (¿mundo borrado o no cargado aún?).");
+        }
+        for (Map.Entry<String, Integer> e : orphanTypes.entrySet()) {
+            sender.sendMessage(ChatColor.YELLOW + " ⚠ " + e.getValue() + " colocado(s) del tipo '"
+                    + e.getKey() + "' que ya no está en el catálogo (no devolverán item al recogerse).");
+        }
+        if (missingWorld == 0 && orphanTypes.isEmpty()) {
+            sender.sendMessage(ChatColor.GREEN + " ✔ Índice sin problemas.");
+        }
+        sender.sendMessage(ChatColor.DARK_GRAY + " (El índice se auto-cura al cargar chunks; los huérfanos se purgan con /sf purge.)");
     }
 
     /** Persist hitbox.width/height of a type to furniture.yml and reload the catalog. */

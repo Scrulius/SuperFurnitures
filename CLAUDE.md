@@ -1,8 +1,8 @@
 # CLAUDE.md — SuperFurnitures (antes SuperBlocksDisplays)
 
 Plugin Paper 1.21.x (Java 21, **Maven**: `mvn clean package` → `target/SuperFurnitures-*.jar`)
-con dos caras: **muebles para jugadores** (items MythicMobs → muebles displayblock, paquete
-`furniture/`, IMPLEMENTADO v1.2.0) y gestor admin de modelos block-display.com (`/bde`).
+con dos caras: **muebles para jugadores** (items nativos o MythicMobs → muebles displayblock,
+paquete `furniture/`, IMPLEMENTADO v1.2.0) y gestor admin de modelos block-display.com (`/bde`).
 **Diseño y decisiones cerradas en [`docs/SUPERFURNITURES_DESIGN.md`](docs/SUPERFURNITURES_DESIGN.md)
 — leerlo antes de tocar nada.** Claves furniture: entities persistentes vanilla + PDC en ancla
 Interaction (el mundo es la BD, sin respawn al arrancar); MythicHook por REFLEXIÓN (no hay dep
@@ -28,6 +28,25 @@ el plugin renombrado migra `plugins/SuperBlocksDisplays` → `plugins/SuperFurni
   NUNCA depende de la API. Los muebles de jugadores usarán otra arquitectura: entities
   persistentes vanilla + metadata en PDC (ver diseño).
 - Piezas trackeadas por **UUID** (no referencias `Entity`, quedan stale al recargar chunk).
+- **Items nativos sin MythicMobs (v1.4.0, `FurnitureItems`)**: cada mueble puede definir
+  `item:` en furniture.yml (material, name/lore con & o MiniMessage, glow, `head-texture`
+  base64 → PLAYER_HEAD con skin custom SIN resource pack) además de (o en vez de) `mythic-item`,
+  que ahora es OPCIONAL — hace falta al menos uno de los dos. Identidad por PDC
+  (`furniture_item` = type id; profile UUID estable por tipo para que stackeen). Reconocimiento
+  en `onPlace`: PDC nativo primero, MM como fallback; un item nativo cuyo tipo salió del catálogo
+  queda INERTE (se cancela el clic — una PLAYER_HEAD de mueble nunca debe colocarse como bloque
+  cabeza vanilla). `FurnitureManager.itemFor(type)` centraliza "el item de un tipo" (nativo si hay
+  spec, MM si no) y lo usan pickup/give/GUI. Sin MythicMobs el módulo YA NO se desactiva: solo
+  caen los muebles con `mythic-item`. Si un tipo define ambos, se da/devuelve el nativo pero los
+  items MM viejos siguen colocando (migración suave).
+- **Verificaciones + admin in-game (v1.4.0)**: `/sf reload` muestra los errores de carga al
+  sender (antes solo consola; `FurnitureRegistry.lastErrors()`); `/sf check` = doctor (errores de
+  catálogo, items irresolubles, menu/commands vacíos, footprint con solid:false, índice: totales
+  por mundo, mundos desaparecidos, tipos huérfanos colocados); `/sf gui [jugador]` = GUI admin de
+  TODOS los muebles (o filtrado), clic = `teleportTo` (teleportAsync + rescueFromSuffocation),
+  shift+clic = recogida remota (usa el bypass normal); `/sf give` acepta `[cantidad]` (1-64).
+  El GUI de jugador y el admin comparten renderer (`FurnitureGui.render` con flag admin en el
+  Holder). Al colocar, el actionbar muestra la cuota "(usados/límite)".
 - **GUI de muebles del jugador (v1.3.0, `FurnitureGui`)**: `/furniture` (alias `/muebles`) sin
   args abre un GUI paginado (45/página, prev/info/next/cerrar en 48/49/50/53) con un icono por
   mueble colocado — el **ItemStack real de MythicMobs** (se ve el mueble), título = display name

@@ -28,6 +28,8 @@ public class FurnitureRegistry {
     private final Map<String, FurnitureType> byId = new LinkedHashMap<>();
     private final Map<String, FurnitureType> byMythicItem = new HashMap<>();
     private final Map<String, ModelData> modelCache = new HashMap<>();
+    /** Errors of the LAST load, kept so /sf reload and /sf check can show them in-game. */
+    private final List<String> lastErrors = new ArrayList<>();
 
     private int perPlayerDefault = 20;
     private int perChunk = 12;
@@ -43,6 +45,7 @@ public class FurnitureRegistry {
         byId.clear();
         byMythicItem.clear();
         modelCache.clear();
+        lastErrors.clear();
 
         File file = new File(plugin.getDataFolder(), "furniture.yml");
         if (!file.exists()) {
@@ -90,22 +93,30 @@ public class FurnitureRegistry {
                 plugin.getLogger().warning("Furniture '" + id + "': animated=true pero el modelo no trae animaciones.");
             }
 
-            FurnitureType clash = byMythicItem.get(type.mythicItem.toLowerCase(Locale.ROOT));
-            if (clash != null) {
-                errors.add("furniture '" + id + "': mythic-item '" + type.mythicItem
-                        + "' ya lo usa '" + clash.id + "' - mueble omitido");
-                continue;
+            if (type.mythicItem != null) {
+                FurnitureType clash = byMythicItem.get(type.mythicItem.toLowerCase(Locale.ROOT));
+                if (clash != null) {
+                    errors.add("furniture '" + id + "': mythic-item '" + type.mythicItem
+                            + "' ya lo usa '" + clash.id + "' - mueble omitido");
+                    continue;
+                }
+                byMythicItem.put(type.mythicItem.toLowerCase(Locale.ROOT), type);
             }
 
             byId.put(type.id, type);
-            byMythicItem.put(type.mythicItem.toLowerCase(Locale.ROOT), type);
             modelCache.put(type.id, modelData);
         }
 
+        lastErrors.addAll(errors);
         for (String error : errors) {
             plugin.getLogger().warning("Furniture config: " + error);
         }
         plugin.getLogger().info("Furniture: " + byId.size() + " mueble(s) registrados.");
+    }
+
+    /** Errors collected by the last load() (also logged to console). */
+    public List<String> lastErrors() {
+        return List.copyOf(lastErrors);
     }
 
     public FurnitureType byId(String id) {

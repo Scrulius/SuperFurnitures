@@ -3,6 +3,7 @@ package com.blockdisplay.plugin;
 import com.blockdisplay.plugin.furniture.FootprintEditor;
 import com.blockdisplay.plugin.furniture.FurnitureCommand;
 import com.blockdisplay.plugin.furniture.FurnitureGui;
+import com.blockdisplay.plugin.furniture.FurnitureItems;
 import com.blockdisplay.plugin.furniture.FurnitureListener;
 import com.blockdisplay.plugin.furniture.FurnitureManager;
 import com.blockdisplay.plugin.furniture.FurnitureRegistry;
@@ -77,18 +78,19 @@ public class BlockDisplayPlugin extends JavaPlugin {
 
         // ---- Furniture module ----
         MythicHook mythicHook = new MythicHook(this);
+        FurnitureItems furnitureItems = new FurnitureItems(this);
         FurnitureRegistry furnitureRegistry = new FurnitureRegistry(this);
         PlacementIndex placementIndex = new PlacementIndex(this);
-        this.furnitureManager = new FurnitureManager(this, furnitureRegistry, placementIndex, mythicHook);
+        this.furnitureManager = new FurnitureManager(this, furnitureRegistry, placementIndex, mythicHook, furnitureItems);
         this.seatEditor = new SeatEditor(this, furnitureManager);
         this.footprintEditor = new FootprintEditor(this, furnitureManager);
         getServer().getPluginManager().registerEvents(new FurnitureListener(this, furnitureManager), this);
 
-        SfCommand sfCommand = new SfCommand(this, furnitureManager, seatEditor, footprintEditor);
-        getCommand("sf").setExecutor(sfCommand);
-        getCommand("sf").setTabCompleter(sfCommand);
         FurnitureGui furnitureGui = new FurnitureGui(furnitureManager);
         getServer().getPluginManager().registerEvents(furnitureGui, this);
+        SfCommand sfCommand = new SfCommand(this, furnitureManager, seatEditor, footprintEditor, furnitureGui);
+        getCommand("sf").setExecutor(sfCommand);
+        getCommand("sf").setTabCompleter(sfCommand);
         FurnitureCommand furnitureCommand = new FurnitureCommand(furnitureManager, furnitureGui);
         getCommand("furniture").setExecutor(furnitureCommand);
         getCommand("furniture").setTabCompleter(furnitureCommand);
