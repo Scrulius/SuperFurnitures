@@ -77,6 +77,23 @@ Checklist para la primera prueba en vivo del módulo de muebles. Server de prueb
 - Colocar con el footprint invadiendo región WorldGuard ajena → rechazado
   ("invade una zona donde no puedes construir").
 
+## 3b. Novedades v1.4.0 (items nativos + admin)
+
+- **Item nativo**: añade a un mueble la sección `item:` (material PLAYER_HEAD + head-texture
+  base64 + name/lore) y `/sf reload` → `/sf give` da el item del plugin (con su nombre/skin);
+  colocar y recoger devuelve EL MISMO item. Con `mythic-item` quitado del yml debe seguir todo
+  funcionando aunque MythicMobs no esté.
+- Item nativo de un tipo BORRADO del catálogo → clic derecho NO coloca nada ni actúa como
+  cabeza vanilla (actionbar "ya no está en el catálogo").
+- `/sf reload` con un error a posta en furniture.yml (p.ej. material inválido) → el error sale
+  EN EL CHAT, no solo en consola.
+- `/sf check` → catálogo e índice en verde; rompe algo (menu sin nombre, footprint con
+  solid:false) y debe salir como ⚠.
+- `/sf gui` → GUI con TODOS los muebles del server (lore con dueño); clic = teleport al mueble,
+  shift+clic = va a tu inventario. `/sf gui <jugador>` filtra.
+- `/sf give silla TuNick 16` → da 16 de golpe (stackean si el item es idéntico).
+- Al colocar, el actionbar dice "Mueble colocado. (n/límite)".
+
 ## 4. Animados (si el modelo trae animación)
 
 `animated: true` en el yml → el mueble se anima en loop al colocarlo, sigue tras
