@@ -69,9 +69,18 @@ public class AnimationManager extends BukkitRunnable {
     public void run() {
         // Untranslatable commands collected for this tick, grouped by world (gamerules toggled once per world).
         Map<World, List<String>> fallbackBatch = null;
+        fallbackBatch = tickAll(plugin.getActiveGroups().values(), fallbackBatch);
+        fallbackBatch = tickAll(plugin.getFurnitureAnimGroups().values(), fallbackBatch);
 
-        for (Map.Entry<UUID, ModelGroup> entry : plugin.getActiveGroups().entrySet()) {
-            ModelGroup group = entry.getValue();
+        if (fallbackBatch != null) {
+            for (Map.Entry<World, List<String>> e : fallbackBatch.entrySet()) {
+                dispatchBatch(e.getKey(), e.getValue());
+            }
+        }
+    }
+
+    private Map<World, List<String>> tickAll(Iterable<ModelGroup> groups, Map<World, List<String>> fallbackBatch) {
+        for (ModelGroup group : groups) {
 
             if (!group.isAnimating()) continue;
             if (!group.isReady()) continue;
@@ -119,7 +128,9 @@ public class AnimationManager extends BukkitRunnable {
                 // In "once" mode, stop after rendering the final frame (not before it).
                 if (currentAnimTick == maxTick && !group.isLoopAnim()) {
                     group.setAnimating(false);
-                    plugin.getPersistenceManager().saveGroup(group);
+                    if (group.isAdminManaged()) {
+                        plugin.getPersistenceManager().saveGroup(group);
+                    }
                     tickCounters.remove(gid);
                     accumulators.remove(gid);
                     stopped = true;
@@ -131,12 +142,7 @@ public class AnimationManager extends BukkitRunnable {
                 tickCounters.put(gid, tick);
             }
         }
-
-        if (fallbackBatch != null) {
-            for (Map.Entry<World, List<String>> e : fallbackBatch.entrySet()) {
-                dispatchBatch(e.getKey(), e.getValue());
-            }
-        }
+        return fallbackBatch;
     }
 
     /** Apply one frame's native actions to whatever parts currently resolve to live Display entities. */

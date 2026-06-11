@@ -5,12 +5,12 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.blockdisplay.plugin</groupId>
-    <artifactId>SuperBlocksDisplays</artifactId>
-    <version>1.1.0</version>
+    <artifactId>SuperFurnitures</artifactId>
+    <version>1.2.0</version>
     <packaging>jar</packaging>
 
-    <name>SuperBlocksDisplays</name>
-    <description>Spawn, animate, and manage BlockDisplay models from block-display.com - by Melonzio</description>
+    <name>SuperFurnitures</name>
+    <description>Muebles block-display para jugadores + gestor de modelos de block-display.com - by Melonzio</description>
 
     <properties>
         <java.version>21</java.version>

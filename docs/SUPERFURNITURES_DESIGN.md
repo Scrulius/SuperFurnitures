@@ -1,5 +1,11 @@
 # SuperFurnitures — Diseño (2026-06-11)
 
+> ✅ **IMPLEMENTADO (v1.2.0, 2026-06-11)**: F1+F2+F3 completas según este documento
+> (paquete `com.blockdisplay.plugin.furniture`: Registry, Manager, Listener, PlacementIndex,
+> MythicHook reflectivo, SfCommand, FurnitureCommand; plugin renombrado con migración de
+> data folder). Pendiente: prueba en vivo en el server (crear un item MM + entrada en
+> furniture.yml y colocar/recoger/sentarse).
+
 SuperBlocksDisplays evoluciona a **SuperFurnitures**: el motor de displayblocks (spawn, snapshots,
 animación nativa, hitboxes) pasa de herramienta de admin a sistema de **muebles para jugadores**.
 `/bde` sigue dentro como herramienta admin. Nicho: furniture **100% vanilla sin resource pack**

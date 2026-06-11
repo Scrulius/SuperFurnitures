@@ -1,9 +1,14 @@
 # CLAUDE.md — SuperFurnitures (antes SuperBlocksDisplays)
 
-Plugin Paper 1.21.x (Java 21, **Maven**: `mvn clean package` → `target/SuperBlocksDisplays-*.jar`)
-para spawnear/animar modelos de block-display.com, en evolución a sistema de **muebles para
-jugadores** (items MythicMobs → muebles displayblock). **Diseño completo y decisiones cerradas en
-[`docs/SUPERFURNITURES_DESIGN.md`](docs/SUPERFURNITURES_DESIGN.md) — leerlo antes de tocar nada.**
+Plugin Paper 1.21.x (Java 21, **Maven**: `mvn clean package` → `target/SuperFurnitures-*.jar`)
+con dos caras: **muebles para jugadores** (items MythicMobs → muebles displayblock, paquete
+`furniture/`, IMPLEMENTADO v1.2.0) y gestor admin de modelos block-display.com (`/bde`).
+**Diseño y decisiones cerradas en [`docs/SUPERFURNITURES_DESIGN.md`](docs/SUPERFURNITURES_DESIGN.md)
+— leerlo antes de tocar nada.** Claves furniture: entities persistentes vanilla + PDC en ancla
+Interaction (el mundo es la BD, sin respawn al arrancar); MythicHook por REFLEXIÓN (no hay dep
+Maven de MythicMobs); protección vía probe de `BlockPlaceEvent` sintético (respeta WorldGuard y
+cualquier protección sin compilar contra ellas); asientos = ArmorStand marker no-persistente;
+el plugin renombrado migra `plugins/SuperBlocksDisplays` → `plugins/SuperFurnitures` al arrancar.
 
 - Repo: **https://github.com/Scrulius/SuperFurnitures** (renombrado; push directo a `main`).
   Sube a GitHub al terminar cualquier trabajo. Mensajes de commit en español.

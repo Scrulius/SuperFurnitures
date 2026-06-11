@@ -1,17 +1,40 @@
-name: SuperBlocksDisplays
-version: '1.1.0'
+name: SuperFurnitures
+version: '1.2.0'
 main: com.blockdisplay.plugin.BlockDisplayPlugin
 api-version: '1.21'
 author: Melonzio
-description: Spawn, animate, and manage BlockDisplay models from block-display.com
-website: https://github.com/Scrulius/SuperBlocksDisplays
+description: Muebles block-display para jugadores + gestor de modelos de block-display.com
+website: https://github.com/Scrulius/SuperFurnitures
+softdepend: [MythicMobs]
 commands:
   bde:
-    description: Manage Block Display models
+    description: Gestionar modelos block-display (admin)
     usage: /bde <spawn|remove|tp|move|list|rotate|anim|speed|info|library|help>
     permission: superblocksdisp.use
     aliases: [sbd, blockdisplay]
+  sf:
+    description: Administracion de muebles
+    usage: /sf <give|types|reload>
+    permission: superfurnitures.admin
+    aliases: [superfurnitures]
+  furniture:
+    description: Tus muebles colocados
+    usage: /furniture <list|limit>
+    permission: superfurnitures.use
+    aliases: [muebles, mueble]
 permissions:
   superblocksdisp.use:
-    description: Allows using SuperBlocksDisplays commands
+    description: Acceso a los comandos /bde
     default: op
+  superfurnitures.admin:
+    description: Administracion de muebles (/sf)
+    default: op
+  superfurnitures.admin.bypass:
+    description: Recoger muebles de cualquier jugador
+    default: op
+  superfurnitures.use:
+    description: Acceso a /furniture
+    default: true
+  superfurnitures.place:
+    description: Colocar muebles
+    default: true

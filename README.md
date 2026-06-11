@@ -1,8 +1,23 @@
-# SuperBlocksDisplays
+# SuperFurnitures
 
-A Paper plugin for spawning, animating and managing [block-display.com](https://block-display.com) models on your Minecraft server.
+A Paper plugin with two faces:
 
-Built for **Paper 1.21.x** and **Java 21+**.
+1. **Furniture for players** — MythicMobs items that place [block-display.com](https://block-display.com) models as furniture: pick-up-able, owned and protected, sittable, menu-opening, optionally solid and animated. 100% vanilla — **no resource pack**.
+2. **Model manager for admins** (`/bde`) — spawn, animate, move and manage block-display models directly.
+
+Built for **Paper 1.21.x** and **Java 21+**. Formerly *SuperBlocksDisplays* (the data folder migrates automatically on first boot).
+
+## Furniture system
+
+Define furniture in `furniture.yml`: each entry maps a **library model** + a **MythicMobs item** to a placeable furniture type (anchor floor/wall/ceiling, hitbox, optional solidity via invisible barriers, optional idle animation, and a right-click action: **sit** (multi-seat), **open a DeluxeMenus menu**, or **run commands**).
+
+- **Place**: right-click a block with the furniture item (rotates to face you, snapped to 90°). Validated against permissions, WorldGuard/any protection plugin (via a synthetic BlockPlaceEvent probe), per-player and per-chunk limits, world blacklist, anchor face and free space.
+- **Pick up**: sneak + right-click with an empty hand. Only the owner (or `superfurnitures.admin.bypass`) can; the MythicMobs item is returned. Furniture whose catalog entry was deleted can still be removed (with a clear message, no item back).
+- **Persistence**: furniture entities are vanilla-persistent — they live and save with their chunk; all metadata (type, owner, yaw, parts, barriers) travels in the PDC of an anchor Interaction entity. The world is the database: zero startup cost regardless of how many thousands are placed. A lightweight `placements.json` index powers limits and `/furniture list`.
+- **Commands**: `/sf give <type> [player]`, `/sf types`, `/sf reload` (admin) — `/furniture list`, `/furniture limit` (players).
+- **Tip**: make the MythicMobs item a player head with a base64 texture so the item in hand *looks* like the furniture — still no resource pack.
+
+## Admin model manager (`/bde`)
 
 ---
 

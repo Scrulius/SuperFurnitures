@@ -36,6 +36,9 @@ public class ModelGroup {
     private boolean loopAnim = true;
     private float animSpeed = 1.0f; // Animation speed multiplier (0.25x to 4x)
     private String currentAnim; // Which named animation plays; initialized to the model's default at spawn
+    // Admin-managed groups (/bde) persist to spawned.yml and are removed on shutdown; furniture
+    // groups are adopted wrappers over vanilla-persistent entities and must touch neither.
+    private boolean adminManaged = true;
 
     private static final Pattern SPLIT_PATTERN = Pattern.compile("(?<=\\}),(?=\\{id:\"minecraft:)");
     private static final Pattern ID_PATTERN = Pattern.compile("^\\{id:\"minecraft:([^\"]+)\"");
@@ -125,10 +128,31 @@ public class ModelGroup {
             currentAnim = modelData.defaultAnimName();
         }
         if (!modelData.hasPassengers()) return;
-        World world = origin.getWorld();
-        if (world == null) return;
+        if (origin.getWorld() == null) return;
 
         NamespacedKey groupKey = new NamespacedKey(plugin, "group_id");
+        List<UUID> intended = summonModelParts(modelData, origin, plugin, e -> tagPart(e, groupKey));
+
+        // Mark as ready after a short delay so all entities are fully registered
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> this.ready = true, 3L);
+
+        plugin.getLogger().info("Model '" + displayName + "' (" + modelId + ") spawned with " + intended.size() + " parts.");
+    }
+
+    /**
+     * Summon every part (and authored hitbox) of a model at the given origin, silently. Each
+     * part's UUID is generated up-front and injected into the summon NBT, so the full list is
+     * known synchronously even though entity registration may lag a tick; {@code onSpawned} runs
+     * for each entity as soon as it resolves (same tick or a 1-tick retry).
+     *
+     * @return the intended UUIDs of every summoned entity.
+     */
+    public static List<UUID> summonModelParts(ModelData modelData, Location origin,
+                                              BlockDisplayPlugin plugin, java.util.function.Consumer<Entity> onSpawned) {
+        List<UUID> intended = new ArrayList<>();
+        World world = origin.getWorld();
+        if (world == null || !modelData.hasPassengers()) return intended;
+
         String dimension = world.getKey().toString();
         SilentCommandSender silentSender = plugin.getSilentSender();
 
@@ -137,98 +161,113 @@ public class ModelGroup {
         Boolean originalLog = world.getGameRuleValue(GameRule.LOG_ADMIN_COMMANDS);
         world.setGameRule(GameRule.SEND_COMMAND_FEEDBACK, false);
         world.setGameRule(GameRule.LOG_ADMIN_COMMANDS, false);
-
-        for (String rawSnbt : modelData.content.passengers) {
-            String[] individualParts = SPLIT_PATTERN.split(rawSnbt);
-
-            for (String snbt : individualParts) {
-                String entityType = "item_display";
-                Matcher idMatcher = ID_PATTERN.matcher(snbt);
-                if (idMatcher.find()) {
-                    entityType = idMatcher.group(1);
-                }
-
-                UUID partUuid = UUID.randomUUID();
-                long msb = partUuid.getMostSignificantBits();
-                long lsb = partUuid.getLeastSignificantBits();
-                String uuidSnbt = String.format(Locale.US, "UUID:[I;%d,%d,%d,%d]",
-                        (int) (msb >> 32), (int) msb, (int) (lsb >> 32), (int) lsb);
-
-                String nbt = snbt.replaceFirst("\\{id:\"minecraft:[^\"]+\",?", "{");
-                nbt = nbt.replaceFirst("\\{", "{" + uuidSnbt + ",");
-
-                String cmd = String.format(Locale.US,
-                        "execute in %s positioned %f %f %f run summon minecraft:%s ~ ~ ~ %s",
-                        dimension, origin.getX(), origin.getY(), origin.getZ(), entityType, nbt);
-
-                try {
-                    Bukkit.dispatchCommand(silentSender, cmd);
-                    Entity spawnedPart = plugin.getServer().getEntity(partUuid);
-                    if (spawnedPart != null) {
-                        tagPart(spawnedPart, groupKey);
-                    } else {
-                        // Entity may not be registered yet; schedule a retry on the next tick
-                        final UUID retryUuid = partUuid;
-                        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                            Entity retryPart = plugin.getServer().getEntity(retryUuid);
-                            if (retryPart != null) {
-                                tagPart(retryPart, groupKey);
-                            } else {
-                                plugin.getLogger().warning("Spawned part not found after retry: " + retryUuid);
-                            }
-                        }, 1L);
+        try {
+            for (String rawSnbt : modelData.content.passengers) {
+                for (String snbt : SPLIT_PATTERN.split(rawSnbt)) {
+                    String entityType = "item_display";
+                    Matcher idMatcher = ID_PATTERN.matcher(snbt);
+                    if (idMatcher.find()) {
+                        entityType = idMatcher.group(1);
                     }
-                } catch (Exception e) {
-                    plugin.getLogger().warning("Failed to summon part: " + e.getMessage());
+
+                    UUID partUuid = UUID.randomUUID();
+                    String nbt = snbt.replaceFirst("\\{id:\"minecraft:[^\"]+\",?", "{");
+                    nbt = nbt.replaceFirst("\\{", "{" + uuidSnbt(partUuid) + ",");
+
+                    String cmd = String.format(Locale.US,
+                            "execute in %s positioned %f %f %f run summon minecraft:%s ~ ~ ~ %s",
+                            dimension, origin.getX(), origin.getY(), origin.getZ(), entityType, nbt);
+                    try {
+                        Bukkit.dispatchCommand(silentSender, cmd);
+                        intended.add(partUuid);
+                        resolveOrRetry(plugin, partUuid, onSpawned);
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("Failed to summon part: " + e.getMessage());
+                    }
                 }
             }
-        }
 
+            if (modelData.hasHitbox()) {
+                for (String hitboxCmd : modelData.content.hitbox) {
+                    UUID hitboxUuid = UUID.randomUUID();
+                    String modified = hitboxCmd.contains("{") ? hitboxCmd : hitboxCmd + "{}";
+                    modified = modified.replaceFirst("\\{", "{" + uuidSnbt(hitboxUuid) + ",");
+
+                    String cmd = String.format(Locale.US,
+                            "execute in %s positioned %f %f %f run %s",
+                            dimension, origin.getX(), origin.getY(), origin.getZ(), modified);
+                    try {
+                        Bukkit.dispatchCommand(silentSender, cmd);
+                        intended.add(hitboxUuid);
+                        resolveOrRetry(plugin, hitboxUuid, onSpawned);
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("Failed to summon hitbox: " + e.getMessage());
+                    }
+                }
+            }
+        } finally {
+            world.setGameRule(GameRule.SEND_COMMAND_FEEDBACK, Boolean.TRUE.equals(originalFeedback));
+            world.setGameRule(GameRule.LOG_ADMIN_COMMANDS, Boolean.TRUE.equals(originalLog));
+        }
+        return intended;
+    }
+
+    private static String uuidSnbt(UUID uuid) {
+        long msb = uuid.getMostSignificantBits();
+        long lsb = uuid.getLeastSignificantBits();
+        return String.format(Locale.US, "UUID:[I;%d,%d,%d,%d]",
+                (int) (msb >> 32), (int) msb, (int) (lsb >> 32), (int) lsb);
+    }
+
+    private static void resolveOrRetry(BlockDisplayPlugin plugin, UUID id, java.util.function.Consumer<Entity> onSpawned) {
+        Entity e = plugin.getServer().getEntity(id);
+        if (e != null) {
+            onSpawned.accept(e);
+        } else {
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                Entity retry = plugin.getServer().getEntity(id);
+                if (retry != null) {
+                    onSpawned.accept(retry);
+                } else {
+                    plugin.getLogger().warning("Spawned part not found after retry: " + id);
+                }
+            }, 1L);
+        }
+    }
+
+    /** Total entities (parts + authored hitboxes) a model spawns — for the furniture size sanity check. */
+    public static int countParts(ModelData modelData) {
+        int count = 0;
+        if (modelData.hasPassengers()) {
+            for (String rawSnbt : modelData.content.passengers) {
+                count += SPLIT_PATTERN.split(rawSnbt).length;
+            }
+        }
         if (modelData.hasHitbox()) {
-            for (String hitboxCmd : modelData.content.hitbox) {
-                UUID hitboxUuid = UUID.randomUUID();
-                long msb = hitboxUuid.getMostSignificantBits();
-                long lsb = hitboxUuid.getLeastSignificantBits();
-                String uuidSnbt = String.format(Locale.US, "UUID:[I;%d,%d,%d,%d]",
-                        (int) (msb >> 32), (int) msb, (int) (lsb >> 32), (int) lsb);
+            count += modelData.content.hitbox.size();
+        }
+        return count;
+    }
 
-                String modifiedHitboxCmd = hitboxCmd;
-                if (!modifiedHitboxCmd.contains("{")) {
-                    modifiedHitboxCmd += "{}";
-                }
-                modifiedHitboxCmd = modifiedHitboxCmd.replaceFirst("\\{", "{" + uuidSnbt + ",");
-
-                String cmd = String.format(Locale.US,
-                        "execute in %s positioned %f %f %f run %s",
-                        dimension, origin.getX(), origin.getY(), origin.getZ(), modifiedHitboxCmd);
-                try {
-                    Bukkit.dispatchCommand(silentSender, cmd);
-                    Entity spawnedHitbox = plugin.getServer().getEntity(hitboxUuid);
-                    if (spawnedHitbox != null) {
-                        tagPart(spawnedHitbox, groupKey);
-                    } else {
-                        final UUID retryUuid = hitboxUuid;
-                        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-                            Entity retryPart = plugin.getServer().getEntity(retryUuid);
-                            if (retryPart != null) {
-                                tagPart(retryPart, groupKey);
-                            }
-                        }, 1L);
-                    }
-                } catch (Exception e) {
-                    plugin.getLogger().warning("Failed to summon hitbox: " + e.getMessage());
+    /**
+     * Wrap a set of already-live entities (a furniture instance loaded with its chunk) so the
+     * animation engine can drive them. No spawning, no persistence — the entities are
+     * vanilla-persistent and belong to the world.
+     */
+    public void adopt(ModelData data, java.util.Collection<Entity> entities) {
+        this.modelData = data;
+        if (currentAnim == null) {
+            currentAnim = data.defaultAnimName();
+        }
+        for (Entity e : entities) {
+            partIds.add(e.getUniqueId());
+            for (String tag : e.getScoreboardTags()) {
+                if (!tag.startsWith("bdeg_")) {
+                    partsByTag.computeIfAbsent(tag, k -> new ArrayList<>()).add(e.getUniqueId());
                 }
             }
         }
-
-        // Restore original gamerule values
-        world.setGameRule(GameRule.SEND_COMMAND_FEEDBACK, Boolean.TRUE.equals(originalFeedback));
-        world.setGameRule(GameRule.LOG_ADMIN_COMMANDS, Boolean.TRUE.equals(originalLog));
-
-        // Mark as ready after a short delay so all entities are fully registered
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> this.ready = true, 3L);
-
-        plugin.getLogger().info("Model '" + displayName + "' (" + modelId + ") spawned with " + partIds.size() + " parts.");
+        this.ready = true;
     }
 
     public void remove(BlockDisplayPlugin plugin) {
@@ -286,4 +325,6 @@ public class ModelGroup {
     public void setLoopAnim(boolean loopAnim) { this.loopAnim = loopAnim; }
     public String getCurrentAnim() { return currentAnim; }
     public void setCurrentAnim(String currentAnim) { this.currentAnim = currentAnim; }
+    public boolean isAdminManaged() { return adminManaged; }
+    public void setAdminManaged(boolean adminManaged) { this.adminManaged = adminManaged; }
 }

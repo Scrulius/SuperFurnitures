@@ -1,0 +1,54 @@
+# ============================================================
+#  SuperFurnitures — catálogo de muebles
+# ============================================================
+# Cada entrada bajo "furniture:" define un mueble colocable.
+# El jugador coloca el mueble haciendo clic derecho con el item
+# de MythicMobs asociado, y lo recoge con SHIFT + clic derecho
+# y la mano vacía (solo el dueño, o superfurnitures.admin.bypass).
+#
+#   nombre_del_mueble:
+#     model: NombreEnLibrary       # modelo descargado con /bde download (OBLIGATORIO)
+#     mythic-item: IdDelItemMM     # item de MythicMobs que lo coloca (OBLIGATORIO)
+#     permission: ""               # permiso extra por mueble (opcional, vacío = solo el global)
+#     anchor: floor                # floor | wall | ceiling
+#     solid: false                 # true = pone bloques barrier invisibles (colisión real)
+#     footprint: []                # offsets "x,y,z" (enteros, espacio local) de los barriers;
+#                                  # vacío + solid = columna en el bloque de origen hasta la
+#                                  # altura del hitbox. Se rotan con el mueble.
+#     animated: false              # true = reproduce su animación en loop mientras esté colocado
+#     hitbox:                      # la "caja" clicable del mueble
+#       width: 1.0
+#       height: 1.0
+#     interaction:
+#       type: none                 # none | seat | menu | commands
+#       seats:                     # (type: seat) offsets "x,y,z" de cada plaza, espacio local
+#         - "0.0,0.4,0.0"          # (+z = hacia donde mira el mueble); varios = multi-plaza
+#       menu: ""                   # (type: menu) menú de DeluxeMenus → dm open <menu> <jugador>
+#       commands: []               # (type: commands) "player: comando" o "console: comando"
+#                                  # con {player} disponible
+#     sounds:
+#       place: block.wood.place
+#       pickup: block.wood.break
+#
+# Los modelos de techo deben estar autorados colgando BAJO su origen;
+# suelo y pared con el origen en su base.
+
+limits:
+  per-player-default: 20     # máximo de muebles colocados por jugador;
+                             # superfurnitures.limit.N lo eleva (gana el mayor)
+  per-chunk: 12              # máximo de muebles por chunk
+
+disabled-worlds: []          # mundos donde NO se pueden colocar muebles
+
+max-parts-warn: 100          # WARN en consola si el modelo de un mueble pasa de N piezas
+                             # (cada pieza es una entity que el cliente debe renderizar)
+
+furniture:
+  # silla_ejemplo:
+  #   model: Silla
+  #   mythic-item: SillaItem
+  #   anchor: floor
+  #   hitbox: { width: 0.8, height: 0.9 }
+  #   interaction:
+  #     type: seat
+  #     seats: [ "0.0,0.4,0.0" ]

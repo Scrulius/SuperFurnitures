@@ -1,9 +1,17 @@
 package com.blockdisplay.plugin;
 
+import com.blockdisplay.plugin.furniture.FurnitureCommand;
+import com.blockdisplay.plugin.furniture.FurnitureListener;
+import com.blockdisplay.plugin.furniture.FurnitureManager;
+import com.blockdisplay.plugin.furniture.FurnitureRegistry;
+import com.blockdisplay.plugin.furniture.MythicHook;
+import com.blockdisplay.plugin.furniture.PlacementIndex;
+import com.blockdisplay.plugin.furniture.SfCommand;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.Logger;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.io.File;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -15,7 +23,10 @@ public class BlockDisplayPlugin extends JavaPlugin {
     private AnimationManager animationManager;
     private SilentCommandSender silentSender;
     private CommandFeedbackFilter logFilter;
+    private FurnitureManager furnitureManager;
     private final Map<UUID, ModelGroup> activeGroups = new HashMap<>();
+    // Animated furniture instances currently loaded (adopted vanilla-persistent entities).
+    private final Map<UUID, ModelGroup> furnitureAnimGroups = new HashMap<>();
 
     // Config values
     private int searchRadius;
@@ -30,6 +41,10 @@ public class BlockDisplayPlugin extends JavaPlugin {
 
     @Override
     public void onEnable() {
+        // The plugin was renamed SuperBlocksDisplays -> SuperFurnitures: adopt the old data
+        // folder (config, library, snapshots) the first time the new name boots.
+        migrateOldDataFolder();
+
         // Save default config if not present and load values
         saveDefaultConfig();
         loadConfigValues();
@@ -55,9 +70,36 @@ public class BlockDisplayPlugin extends JavaPlugin {
         getCommand("bde").setExecutor(bdeCommand);
         getCommand("bde").setTabCompleter(bdeCommand);
 
+        // ---- Furniture module ----
+        MythicHook mythicHook = new MythicHook(this);
+        FurnitureRegistry furnitureRegistry = new FurnitureRegistry(this);
+        PlacementIndex placementIndex = new PlacementIndex(this);
+        this.furnitureManager = new FurnitureManager(this, furnitureRegistry, placementIndex, mythicHook);
+        getServer().getPluginManager().registerEvents(new FurnitureListener(this, furnitureManager), this);
+
+        SfCommand sfCommand = new SfCommand(this, furnitureManager);
+        getCommand("sf").setExecutor(sfCommand);
+        getCommand("sf").setTabCompleter(sfCommand);
+        FurnitureCommand furnitureCommand = new FurnitureCommand(furnitureManager);
+        getCommand("furniture").setExecutor(furnitureCommand);
+        getCommand("furniture").setTabCompleter(furnitureCommand);
+
         // Note: saved models load asynchronously, so they aren't counted here yet
         // (PersistenceManager logs "Loading N saved model(s)..." and one line per model as they arrive).
-        getLogger().info("SuperBlocksDisplays enabled.");
+        getLogger().info("SuperFurnitures enabled.");
+    }
+
+    private void migrateOldDataFolder() {
+        File dataFolder = getDataFolder();
+        if (dataFolder.exists()) return;
+        File old = new File(dataFolder.getParentFile(), "SuperBlocksDisplays");
+        if (old.exists() && old.isDirectory()) {
+            if (old.renameTo(dataFolder)) {
+                getLogger().info("Migrated data folder: SuperBlocksDisplays -> " + dataFolder.getName());
+            } else {
+                getLogger().warning("Could not migrate old SuperBlocksDisplays data folder; starting fresh.");
+            }
+        }
     }
 
     /** Re-read config.yml from disk and apply the new values (used by /bde reload). */
@@ -83,7 +125,13 @@ public class BlockDisplayPlugin extends JavaPlugin {
         if (animationManager != null) {
             animationManager.cancel();
         }
-        // Remove all display entities so they don't duplicate on restart
+        // Seat stands are session-only helpers; furniture entities themselves persist with chunks.
+        if (furnitureManager != null) {
+            furnitureManager.removeAllSeats();
+        }
+        furnitureAnimGroups.clear();
+
+        // Remove all admin-managed (/bde) display entities so they don't duplicate on restart
         int removedCount = 0;
         for (ModelGroup group : activeGroups.values()) {
             removedCount += group.getPartCount();
@@ -96,7 +144,7 @@ public class BlockDisplayPlugin extends JavaPlugin {
         if (logFilter != null) {
             logFilter.stop();
         }
-        getLogger().info("SuperBlocksDisplays disabled.");
+        getLogger().info("SuperFurnitures disabled.");
     }
 
     // Config getters
@@ -116,6 +164,8 @@ public class BlockDisplayPlugin extends JavaPlugin {
     public AnimationManager getAnimationManager() { return animationManager; }
     public SilentCommandSender getSilentSender() { return silentSender; }
     public Map<UUID, ModelGroup> getActiveGroups() { return activeGroups; }
+    public Map<UUID, ModelGroup> getFurnitureAnimGroups() { return furnitureAnimGroups; }
+    public FurnitureManager getFurnitureManager() { return furnitureManager; }
 
     /**
      * Find a model group by its display name (case-insensitive).
