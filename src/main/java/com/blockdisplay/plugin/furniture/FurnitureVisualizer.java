@@ -62,7 +62,7 @@ public final class FurnitureVisualizer {
     }
 
     /** The 12 edges of an axis-aligned box, sampled every STEP blocks. */
-    private static void drawBox(Player player, World world,
+    static void drawBox(Player player, World world,
                                 double x1, double y1, double z1,
                                 double x2, double y2, double z2,
                                 Particle.DustOptions dust) {

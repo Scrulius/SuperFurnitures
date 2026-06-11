@@ -1,5 +1,6 @@
 package com.blockdisplay.plugin;
 
+import com.blockdisplay.plugin.furniture.FootprintEditor;
 import com.blockdisplay.plugin.furniture.FurnitureCommand;
 import com.blockdisplay.plugin.furniture.FurnitureListener;
 import com.blockdisplay.plugin.furniture.FurnitureManager;
@@ -26,6 +27,7 @@ public class BlockDisplayPlugin extends JavaPlugin {
     private CommandFeedbackFilter logFilter;
     private FurnitureManager furnitureManager;
     private SeatEditor seatEditor;
+    private FootprintEditor footprintEditor;
     private final Map<UUID, ModelGroup> activeGroups = new HashMap<>();
     // Animated furniture instances currently loaded (adopted vanilla-persistent entities).
     private final Map<UUID, ModelGroup> furnitureAnimGroups = new HashMap<>();
@@ -78,9 +80,10 @@ public class BlockDisplayPlugin extends JavaPlugin {
         PlacementIndex placementIndex = new PlacementIndex(this);
         this.furnitureManager = new FurnitureManager(this, furnitureRegistry, placementIndex, mythicHook);
         this.seatEditor = new SeatEditor(this, furnitureManager);
+        this.footprintEditor = new FootprintEditor(this, furnitureManager);
         getServer().getPluginManager().registerEvents(new FurnitureListener(this, furnitureManager), this);
 
-        SfCommand sfCommand = new SfCommand(this, furnitureManager, seatEditor);
+        SfCommand sfCommand = new SfCommand(this, furnitureManager, seatEditor, footprintEditor);
         getCommand("sf").setExecutor(sfCommand);
         getCommand("sf").setTabCompleter(sfCommand);
         FurnitureCommand furnitureCommand = new FurnitureCommand(furnitureManager);
@@ -135,6 +138,9 @@ public class BlockDisplayPlugin extends JavaPlugin {
         if (seatEditor != null) {
             seatEditor.discardAll();
         }
+        if (footprintEditor != null) {
+            footprintEditor.discardAll();
+        }
         furnitureAnimGroups.clear();
 
         // Remove all admin-managed (/bde) display entities so they don't duplicate on restart
@@ -173,6 +179,7 @@ public class BlockDisplayPlugin extends JavaPlugin {
     public Map<UUID, ModelGroup> getFurnitureAnimGroups() { return furnitureAnimGroups; }
     public FurnitureManager getFurnitureManager() { return furnitureManager; }
     public SeatEditor getSeatEditor() { return seatEditor; }
+    public FootprintEditor getFootprintEditor() { return footprintEditor; }
 
     /**
      * Find a model group by its display name (case-insensitive).

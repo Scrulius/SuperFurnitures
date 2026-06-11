@@ -375,6 +375,62 @@ public class FurnitureManager {
         return new int[]{removed, pruned};
     }
 
+    // ==================== TYPE RE-SYNC (admin tuning tools) ====================
+
+    /** The block the furniture was placed INTO (the shell origin), recovered from the anchor. */
+    static Block shellTarget(Interaction anchor, FurnitureType type) {
+        Location loc = anchor.getLocation();
+        // CEILING anchors spawn at target + (0.5, 1.0, 0.5): the origin block is one below
+        if (type.anchor == FurnitureType.Anchor.CEILING) {
+            return anchor.getWorld().getBlockAt(loc.getBlockX(), (int) Math.floor(loc.getY()) - 1, loc.getBlockZ());
+        }
+        return loc.getBlock();
+    }
+
+    /**
+     * Re-apply the solid shell of a placed furniture after its type's footprint/hitbox changed
+     * in furniture.yml: old barriers back to air, new ones placed, PDC updated.
+     */
+    public void reshell(Interaction anchor) {
+        PersistentDataContainer pdc = anchor.getPersistentDataContainer();
+        FurnitureType type = registry.byId(pdc.get(keyType, PersistentDataType.STRING));
+        if (type == null) return;
+        World world = anchor.getWorld();
+
+        String old = pdc.get(keyBarriers, PersistentDataType.STRING);
+        if (old != null && !old.isEmpty()) {
+            for (String pos : old.split(";")) {
+                String[] xyz = pos.split(",");
+                Block b = world.getBlockAt(Integer.parseInt(xyz[0]), Integer.parseInt(xyz[1]), Integer.parseInt(xyz[2]));
+                if (b.getType() == Material.BARRIER) {
+                    b.setType(Material.AIR);
+                }
+            }
+        }
+        pdc.remove(keyBarriers);
+        if (!type.solid) return;
+
+        Float yawObj = pdc.get(keyYaw, PersistentDataType.FLOAT);
+        float yaw = yawObj != null ? yawObj : 0f;
+        int heightBlocks = (type.anchor == FurnitureType.Anchor.FLOOR)
+                ? Math.max(1, (int) Math.ceil(type.hitboxHeight)) : 1;
+        String csv = placeBarriers(type, shellTarget(anchor, type), yaw, heightBlocks);
+        if (!csv.isEmpty()) {
+            pdc.set(keyBarriers, PersistentDataType.STRING, csv);
+        }
+    }
+
+    /** Align a loaded anchor's clickable size with its type (after /sf hitbox). @return changed */
+    public boolean syncHitbox(Interaction anchor, FurnitureType type) {
+        if (anchor.getInteractionWidth() == type.hitboxWidth
+                && anchor.getInteractionHeight() == type.hitboxHeight) {
+            return false;
+        }
+        anchor.setInteractionWidth(type.hitboxWidth);
+        anchor.setInteractionHeight(type.hitboxHeight);
+        return true;
+    }
+
     // ==================== INTERACT ====================
 
     public void interact(Player player, Interaction anchor) {
@@ -436,7 +492,7 @@ public class FurnitureManager {
         for (double[] offset : type.seats) {
             double[] rotated = rotate(offset[0], offset[2], yaw);
             Location seatLoc = base.clone().add(rotated[0], offset[1], rotated[1]);
-            seatLoc.setYaw(yaw);
+            seatLoc.setYaw(seatYaw(yaw, offset));
 
             // Occupied? an existing seat stand within 0.3 blocks with a passenger
             boolean occupied = false;
@@ -605,6 +661,12 @@ public class FurnitureManager {
 
     private static float snap90(float yaw) {
         return Math.floorMod(Math.round(yaw / 90f) * 90, 360);
+    }
+
+    /** Facing of a seat: the furniture yaw plus the seat's optional 4th component (relative yaw). */
+    static float seatYaw(float furnitureYaw, double[] seatOffset) {
+        float yaw = furnitureYaw + (seatOffset.length > 3 ? (float) seatOffset[3] : 0f);
+        return ((yaw % 360f) + 360f) % 360f;
     }
 
     private static float faceYaw(BlockFace face) {

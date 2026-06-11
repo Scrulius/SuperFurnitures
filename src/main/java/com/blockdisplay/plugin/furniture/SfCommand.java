@@ -34,11 +34,14 @@ public class SfCommand implements CommandExecutor, TabCompleter {
     private final BlockDisplayPlugin plugin;
     private final FurnitureManager manager;
     private final SeatEditor seatEditor;
+    private final FootprintEditor footprintEditor;
 
-    public SfCommand(BlockDisplayPlugin plugin, FurnitureManager manager, SeatEditor seatEditor) {
+    public SfCommand(BlockDisplayPlugin plugin, FurnitureManager manager,
+                     SeatEditor seatEditor, FootprintEditor footprintEditor) {
         this.plugin = plugin;
         this.manager = manager;
         this.seatEditor = seatEditor;
+        this.footprintEditor = footprintEditor;
     }
 
     @Override
@@ -49,6 +52,8 @@ public class SfCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf list [jugador]" + ChatColor.GRAY + " - Muebles colocados (todos o de un jugador)");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf purge <jugador>" + ChatColor.GRAY + " - Eliminar TODOS los muebles de un jugador");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf seats" + ChatColor.GRAY + " - Editor de asientos con maniquís (mueble cercano)");
+            sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf footprint" + ChatColor.GRAY + " - Editor de huella sólida a golpes (mueble cercano)");
+            sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf hitbox <ancho> <alto>" + ChatColor.GRAY + " - Cambiar el tamaño clicable del tipo cercano");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf show" + ChatColor.GRAY + " - Ver hitbox y barreras del mueble cercano (partículas)");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf info" + ChatColor.GRAY + " - Radiografía del mueble cercano");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf reload" + ChatColor.GRAY + " - Recargar furniture.yml");
@@ -213,6 +218,74 @@ public class SfCommand implements CommandExecutor, TabCompleter {
                             + "Uso: /sf seats [add|move|remove|list|save|cancel]");
                 }
             }
+            case "footprint" -> {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "El editor de huella es in-game (se pinta a golpes).");
+                    return true;
+                }
+                String sub = args.length >= 2 ? args[1].toLowerCase() : "start";
+                switch (sub) {
+                    case "start" -> footprintEditor.start(player);
+                    case "add" -> footprintEditor.add(player);
+                    case "clear" -> footprintEditor.clear(player);
+                    case "save" -> footprintEditor.save(player);
+                    case "cancel" -> footprintEditor.cancel(player);
+                    default -> sender.sendMessage(PREFIX + ChatColor.RED
+                            + "Uso: /sf footprint [add|clear|save|cancel]  (golpea bloques para pintar)");
+                }
+            }
+            case "hitbox" -> {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Solo in-game.");
+                    return true;
+                }
+                if (args.length < 3) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Uso: /sf hitbox <ancho> <alto>  (del tipo del mueble cercano)");
+                    return true;
+                }
+                double width;
+                double height;
+                try {
+                    width = Double.parseDouble(args[1]);
+                    height = Double.parseDouble(args[2]);
+                } catch (NumberFormatException e) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Ancho/alto inválidos: " + args[1] + " " + args[2]);
+                    return true;
+                }
+                if (width <= 0 || width > 8 || height <= 0 || height > 8) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Fuera de rango: ancho y alto deben estar entre 0 y 8.");
+                    return true;
+                }
+                Interaction anchor = manager.findNearestAnchor(player, 5.0);
+                if (anchor == null) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "No hay ningún mueble a menos de 5 bloques.");
+                    return true;
+                }
+                String typeId = anchor.getPersistentDataContainer().get(manager.keyType, PersistentDataType.STRING);
+                if (manager.getRegistry().byId(typeId) == null) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Ese mueble ya no está en el catálogo.");
+                    return true;
+                }
+                if (!saveHitbox(player, typeId, width, height)) {
+                    return true;
+                }
+                // Live re-sync: this anchor now; the rest of loaded ones too; unloaded chunks
+                // catch up via the EntitiesLoadEvent hitbox sync.
+                FurnitureType type = manager.getRegistry().byId(typeId);
+                int synced = 0;
+                for (org.bukkit.World world : Bukkit.getWorlds()) {
+                    for (Interaction other : world.getEntitiesByClass(Interaction.class)) {
+                        if (typeId.equals(other.getPersistentDataContainer().get(manager.keyType, PersistentDataType.STRING))
+                                && manager.syncHitbox(other, type)) {
+                            synced++;
+                        }
+                    }
+                }
+                manager.reshell(anchor);
+                FurnitureVisualizer.show(plugin, manager, player, anchor);
+                sender.sendMessage(PREFIX + ChatColor.GREEN + "Hitbox de '" + typeId + "' → " + width + "×" + height
+                        + ChatColor.GRAY + " (" + synced + " colocado(s) actualizados en vivo; el resto al cargar su chunk).");
+            }
             case "show" -> {
                 if (!(sender instanceof Player player)) {
                     sender.sendMessage(PREFIX + ChatColor.RED + "Solo in-game.");
@@ -253,13 +326,16 @@ public class SfCommand implements CommandExecutor, TabCompleter {
     @Nullable
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String[] args) {
         if (args.length == 1) {
-            return filter(Arrays.asList("give", "types", "list", "purge", "seats", "show", "info", "reload"), args[0]);
+            return filter(Arrays.asList("give", "types", "list", "purge", "seats", "footprint", "hitbox", "show", "info", "reload"), args[0]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("seats")) {
             return filter(Arrays.asList("add", "move", "remove", "list", "save", "cancel"), args[1]);
         }
         if (args.length == 4 && args[0].equalsIgnoreCase("seats") && args[1].equalsIgnoreCase("move")) {
-            return filter(Arrays.asList("x", "y", "z"), args[3]);
+            return filter(Arrays.asList("x", "y", "z", "yaw"), args[3]);
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("footprint")) {
+            return filter(Arrays.asList("add", "clear", "save", "cancel"), args[1]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("give")) {
             return filter(manager.getRegistry().all().stream().map(t -> t.id).collect(Collectors.toList()), args[1]);
@@ -271,6 +347,28 @@ public class SfCommand implements CommandExecutor, TabCompleter {
             return null; // jugadores online
         }
         return Collections.emptyList();
+    }
+
+    /** Persist hitbox.width/height of a type to furniture.yml and reload the catalog. */
+    private boolean saveHitbox(Player player, String typeId, double width, double height) {
+        java.io.File file = new java.io.File(plugin.getDataFolder(), "furniture.yml");
+        org.bukkit.configuration.file.YamlConfiguration yml =
+                org.bukkit.configuration.file.YamlConfiguration.loadConfiguration(file);
+        String basePath = "furniture." + typeId;
+        if (!yml.isConfigurationSection(basePath)) {
+            player.sendMessage(PREFIX + ChatColor.RED + "'" + typeId + "' ya no está en furniture.yml.");
+            return false;
+        }
+        yml.set(basePath + ".hitbox.width", width);
+        yml.set(basePath + ".hitbox.height", height);
+        try {
+            yml.save(file);
+        } catch (Exception e) {
+            player.sendMessage(PREFIX + ChatColor.RED + "No se pudo escribir furniture.yml: " + e.getMessage());
+            return false;
+        }
+        manager.getRegistry().load();
+        return true;
     }
 
     private void sendInfo(Player player, Interaction anchor) {

@@ -142,9 +142,17 @@ public class SeatEditor {
         // World-space delta back to the furniture's local space: rotate by -yaw
         double[] local = FurnitureManager.rotate(dx, dz, -s.yaw);
 
-        s.seats.add(new double[]{round2(local[0]), round2(dy), round2(local[1])});
+        // The admin's OWN facing (snapped to 45°) becomes the seat's facing: look where the
+        // seated player should look, then add. 0 = furniture facing → stored as 3 components.
+        float relYaw = Math.round(normalize(at.getYaw() - s.yaw) / 45f) * 45f % 360f;
+        double[] seat = (relYaw == 0f)
+                ? new double[]{round2(local[0]), round2(dy), round2(local[1])}
+                : new double[]{round2(local[0]), round2(dy), round2(local[1]), relYaw};
+
+        s.seats.add(seat);
         respawnPreviews(s);
-        player.sendMessage(PREFIX + ChatColor.GREEN + "Asiento " + s.seats.size() + " añadido donde estás. "
+        player.sendMessage(PREFIX + ChatColor.GREEN + "Asiento " + s.seats.size() + " añadido donde estás"
+                + (relYaw != 0f ? " mirando a " + (int) relYaw + "° del mueble" : "") + ". "
                 + ChatColor.GRAY + "Mira el maniquí y ajusta con /sf seats move " + s.seats.size() + " ...");
     }
 
@@ -160,17 +168,23 @@ public class SeatEditor {
             case "x" -> 0;
             case "y" -> 1;
             case "z" -> 2;
+            case "yaw" -> 3;
             default -> -1;
         };
         if (idx < 0) {
-            player.sendMessage(PREFIX + ChatColor.RED + "Eje inválido: usa x, y o z (locales al mueble; +z = hacia donde mira).");
+            player.sendMessage(PREFIX + ChatColor.RED + "Eje inválido: usa x, y, z (locales; +z = frente) o yaw (grados).");
             return;
         }
         double[] seat = s.seats.get(n - 1);
-        seat[idx] = round2(seat[idx] + delta);
+        if (idx == 3 && seat.length < 4) {
+            seat = new double[]{seat[0], seat[1], seat[2], 0};
+            s.seats.set(n - 1, seat);
+        }
+        seat[idx] = (idx == 3)
+                ? (((seat[idx] + delta) % 360) + 360) % 360
+                : round2(seat[idx] + delta);
         respawnPreviews(s);
-        player.sendMessage(PREFIX + ChatColor.GREEN + "Asiento " + n + " → "
-                + fmt(seat[0]) + ", " + fmt(seat[1]) + ", " + fmt(seat[2]));
+        player.sendMessage(PREFIX + ChatColor.GREEN + "Asiento " + n + " → " + describe(seat));
     }
 
     public void remove(Player player, int n) {
@@ -195,9 +209,8 @@ public class SeatEditor {
         }
         player.sendMessage(PREFIX + ChatColor.GOLD + "Asientos de '" + s.typeId + "' (offsets locales, +z = frente):");
         for (int i = 0; i < s.seats.size(); i++) {
-            double[] seat = s.seats.get(i);
             player.sendMessage(ChatColor.WHITE + " " + (i + 1) + ChatColor.DARK_GRAY + ": " + ChatColor.GRAY
-                    + fmt(seat[0]) + ", " + fmt(seat[1]) + ", " + fmt(seat[2]));
+                    + describe(s.seats.get(i)));
         }
     }
 
@@ -215,7 +228,11 @@ public class SeatEditor {
 
         List<String> out = new ArrayList<>();
         for (double[] seat : s.seats) {
-            out.add(fmt(seat[0]) + ", " + fmt(seat[1]) + ", " + fmt(seat[2]));
+            String line = fmt(seat[0]) + ", " + fmt(seat[1]) + ", " + fmt(seat[2]);
+            if (seat.length > 3 && seat[3] != 0) {
+                line += ", " + fmt(seat[3]);
+            }
+            out.add(line);
         }
         yml.set(basePath + ".interaction.seats", out);
         boolean typeChanged = false;
@@ -252,7 +269,7 @@ public class SeatEditor {
         for (double[] seat : s.seats) {
             double[] rotated = FurnitureManager.rotate(seat[0], seat[2], s.yaw);
             Location seatLoc = base.clone().add(rotated[0], seat[1], rotated[1]);
-            seatLoc.setYaw(s.yaw);
+            seatLoc.setYaw(FurnitureManager.seatYaw(s.yaw, seat));
 
             ArmorStand stand = world.spawn(seatLoc, ArmorStand.class, as -> {
                 as.setInvisible(true);
@@ -324,6 +341,18 @@ public class SeatEditor {
 
     private static double round2(double v) {
         return Math.round(v * 100.0) / 100.0;
+    }
+
+    private static float normalize(float yaw) {
+        return ((yaw % 360f) + 360f) % 360f;
+    }
+
+    private static String describe(double[] seat) {
+        String out = fmt(seat[0]) + ", " + fmt(seat[1]) + ", " + fmt(seat[2]);
+        if (seat.length > 3 && seat[3] != 0) {
+            out += "  (yaw +" + fmt(seat[3]) + "°)";
+        }
+        return out;
     }
 
     private static String fmt(double v) {

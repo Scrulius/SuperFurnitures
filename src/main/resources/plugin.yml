@@ -14,7 +14,7 @@ commands:
     aliases: [sbd, blockdisplay]
   sf:
     description: Administracion de muebles
-    usage: /sf <give|types|list|purge|seats|show|info|reload>
+    usage: /sf <give|types|list|purge|seats|footprint|hitbox|show|info|reload>
     permission: superfurnitures.admin
     aliases: [superfurnitures]
   furniture:

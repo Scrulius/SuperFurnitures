@@ -45,3 +45,16 @@ el plugin renombrado migra `plugins/SuperBlocksDisplays` → `plugins/SuperFurni
   si el mueble desaparece. `/sf show` = wireframe de partículas DUST 10s (hitbox cian, barreras
   rojas, solo las ve el admin); se auto-lanza al abrir el editor. `/sf info` = radiografía del
   mueble cercano (dueño, piezas, barreras, hitbox, interacción, instancia).
+- **Yaw por asiento**: los offsets de `interaction.seats` aceptan un 4º componente opcional
+  (`x, y, z, yawRelativo` en grados, relativo al frente del mueble) — sofás en L con asientos
+  mirando a sitios distintos. El editor lo captura de la MIRADA del admin al hacer `add`
+  (snap 45°; 0° no se escribe) y tiene eje `yaw` en `move`. Aplicado en `FurnitureManager.seatYaw`.
+- **`/sf footprint`** (`FootprintEditor`): pintar la huella sólida **a golpes** — punch togglea
+  celdas (naranja, bucle de partículas por sesión), `add` marca el bloque bajo los pies (celdas
+  en el aire), `clear`, `save` escribe `footprint` + `solid: true` y **re-aplica el caparazón
+  del mueble editado** (`FurnitureManager.reshell`: barreras viejas→aire, nuevas según el tipo,
+  PDC actualizado). ⚠️ Los demás colocados conservan su caparazón hasta recolocarse (se hornea
+  al colocar).
+- **`/sf hitbox <ancho> <alto>`**: persiste `hitbox.width/height` del tipo cercano, re-sincroniza
+  en vivo TODOS los anchors cargados (`syncHitbox`) + reshell del cercano + auto-`show`; los de
+  chunks descargados se alinean solos al cargar (sync de hitbox añadido al `EntitiesLoadEvent`).

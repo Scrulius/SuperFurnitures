@@ -62,6 +62,15 @@ public class FurnitureListener implements Listener {
         }
     }
 
+    /** Punches paint cells while a footprint-editor session is active. */
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPunchBlock(PlayerInteractEvent e) {
+        if (e.getAction() != Action.LEFT_CLICK_BLOCK || e.getClickedBlock() == null) return;
+        if (plugin.getFootprintEditor().handlePunch(e.getPlayer(), e.getClickedBlock())) {
+            e.setCancelled(true);
+        }
+    }
+
     // ==================== PICKUP / INTERACT ====================
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -148,6 +157,7 @@ public class FurnitureListener implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent e) {
         plugin.getSeatEditor().discard(e.getPlayer().getUniqueId());
+        plugin.getFootprintEditor().discard(e.getPlayer().getUniqueId());
         Entity vehicle = e.getPlayer().getVehicle();
         if (vehicle != null
                 && vehicle.getPersistentDataContainer().has(manager.keySeat, PersistentDataType.BYTE)) {
@@ -171,6 +181,13 @@ public class FurnitureListener implements Listener {
                 if (instance != null) {
                     anchorsPresent.add(instance);
                     healIndexEntry(anchor, instance);
+                }
+                // Lazy hitbox sync: /sf hitbox can't reach anchors in unloaded chunks,
+                // so every anchor re-aligns with its type when its chunk comes back.
+                FurnitureType type = manager.getRegistry().byId(
+                        anchor.getPersistentDataContainer().get(manager.keyType, PersistentDataType.STRING));
+                if (type != null) {
+                    manager.syncHitbox(anchor, type);
                 }
                 manager.bindAnimation(anchor);
             }

@@ -23,7 +23,7 @@ public class FurnitureType {
     public final float hitboxWidth;
     public final float hitboxHeight;
     public final InteractionType interactionType;
-    public final List<double[]> seats;      // local-space seat offsets (x, y, z); +z = facing
+    public final List<double[]> seats;      // local-space seat offsets (x, y, z[, yawRelativo]); +z = facing
     public final String menu;               // DeluxeMenus menu name
     public final List<String> commands;     // "player: cmd" / "console: cmd"
     public final List<int[]> footprint;     // local-space barrier offsets (solid only)
@@ -110,7 +110,10 @@ public class FurnitureType {
         );
     }
 
-    /** Accepts "x,y,z" strings or [x, y, z] number lists per element. */
+    /**
+     * Accepts "x,y,z" strings or [x, y, z] number lists per element. A 4th component is kept
+     * if present (seats use it as a per-seat yaw, relative to the furniture facing).
+     */
     private static List<double[]> parseOffsets(List<?> raw, List<String> errors, String id, String path) {
         List<double[]> out = new ArrayList<>();
         if (raw == null) return out;
@@ -118,15 +121,18 @@ public class FurnitureType {
             try {
                 if (element instanceof String str) {
                     String[] split = str.split(",");
-                    out.add(new double[]{
-                            Double.parseDouble(split[0].trim()),
-                            Double.parseDouble(split[1].trim()),
-                            Double.parseDouble(split[2].trim())});
+                    if (split.length < 3) throw new IllegalArgumentException("faltan componentes");
+                    double[] parsed = new double[Math.min(split.length, 4)];
+                    for (int i = 0; i < parsed.length; i++) {
+                        parsed[i] = Double.parseDouble(split[i].trim());
+                    }
+                    out.add(parsed);
                 } else if (element instanceof List<?> list && list.size() >= 3) {
-                    out.add(new double[]{
-                            ((Number) list.get(0)).doubleValue(),
-                            ((Number) list.get(1)).doubleValue(),
-                            ((Number) list.get(2)).doubleValue()});
+                    double[] parsed = new double[Math.min(list.size(), 4)];
+                    for (int i = 0; i < parsed.length; i++) {
+                        parsed[i] = ((Number) list.get(i)).doubleValue();
+                    }
+                    out.add(parsed);
                 }
             } catch (Exception e) {
                 errors.add("furniture '" + id + "': offset inválido en " + path + ": " + element);
