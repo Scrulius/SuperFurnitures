@@ -1,5 +1,5 @@
 name: SuperFurnitures
-version: '1.4.0'
+version: '1.5.0'
 main: com.blockdisplay.plugin.BlockDisplayPlugin
 api-version: '1.21'
 author: Melonzio
@@ -14,7 +14,7 @@ commands:
     aliases: [sbd, blockdisplay]
   sf:
     description: Administracion de muebles
-    usage: /sf <give|types|gui|list|check|purge|seats|footprint|hitbox|show|info|reload>
+    usage: /sf <give|types|gui|list|check|place|near|audit|purge|seats|footprint|hitbox|show|info|reload>
     permission: superfurnitures.admin
     aliases: [superfurnitures]
   furniture:

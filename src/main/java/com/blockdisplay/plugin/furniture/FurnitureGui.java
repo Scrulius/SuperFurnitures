@@ -237,6 +237,7 @@ public class FurnitureGui implements Listener {
     }
 
     private static String ownerName(String ownerUuid) {
+        if (FurnitureManager.SERVER_OWNER.equals(ownerUuid)) return "Servidor";
         try {
             OfflinePlayer op = Bukkit.getOfflinePlayer(UUID.fromString(ownerUuid));
             return op.getName() != null ? op.getName() : ownerUuid;

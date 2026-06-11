@@ -47,6 +47,29 @@ el plugin renombrado migra `plugins/SuperBlocksDisplays` → `plugins/SuperFurni
   shift+clic = recogida remota (usa el bypass normal); `/sf give` acepta `[cantidad]` (1-64).
   El GUI de jugador y el admin comparten renderer (`FurnitureGui.render` con flag admin en el
   Holder). Al colocar, el actionbar muestra la cuota "(usados/límite)".
+- **v1.5.0 — QoL elegida por el autor (sí/no a 14 propuestas)**: 8 features aprobadas:
+  - **Rotación 45°** (`rotateFurniture`): muebles NO sólidos giran en pasos de 45° (sneak+golpe);
+    los sólidos siguen a 90° (el caparazón de barriers debe quedar alineado a la rejilla).
+  - **Plaza más cercana**: en muebles multi-asiento, `seat()` ordena las plazas por distancia al
+    JUGADOR (te sientas donde te pones, no en la plaza #1).
+  - **"¿De quién es?"**: clic derecho en mueble decorativo (interaction NONE) → actionbar
+    "Silla — de Pepe" (`FurnitureManager.ownerLabel`, también usado por /sf near).
+  - **Muebles de SERVIDOR** (`/sf place <tipo>`, `placeServer`): owner centinela `"server"`
+    (`SERVER_OWNER`) → sin límites, solo bypass los recoge/gira, interacciones funcionan para
+    todos (bancos del spawn). Se coloca donde miras (rayTraceBlocks 6). `/sf purge server` los
+    purga. Salta permisos/protección/límites; mantiene cara de anclaje + espacio.
+  - **Auditoría** (`FurnitureAudit`, `furniture-log.jsonl`): un JSON por línea (PLACE/
+    PLACE_SERVER/PICKUP/ROTATE/PURGE, actor, tipo, instancia, mundo+coords), append async con
+    lock, rotación a `.1` a los 2MB. `/sf audit [jugador] [n]` lee las últimas (50 máx).
+    `purgeOwner` ahora lleva el nombre del actor.
+  - **Límite por tipo**: `max-per-player: N` por mueble en furniture.yml (-1 = solo global);
+    `PlacementIndex.countByOwnerAndType`.
+  - **`/sf near [radio]`**: muebles a ≤N bloques (5-200, default 20), ordenados por distancia,
+    cada línea CLICABLE → tp (`/sf tp <instancia>`, subcomando para esto).
+  - **Salud al arrancar** (`logFurnitureHealth`): resumen en consola al habilitar (tipos, errores
+    de config, colocados, huérfanos, mundos ausentes) — catálogo roto visible sin entrar al juego.
+  - Rechazadas (NO implementar sin preguntar): preview fantasma, /furniture find, trust por
+    mueble, /sf create in-game, papelera de purga, /sf item preview.
 - **GUI de muebles del jugador (v1.3.0, `FurnitureGui`)**: `/furniture` (alias `/muebles`) sin
   args abre un GUI paginado (45/página, prev/info/next/cerrar en 48/49/50/53) con un icono por
   mueble colocado — el **ItemStack real de MythicMobs** (se ve el mueble), título = display name

@@ -94,6 +94,25 @@ Checklist para la primera prueba en vivo del módulo de muebles. Server de prueb
 - `/sf give silla TuNick 16` → da 16 de golpe (stackean si el item es idéntico).
 - Al colocar, el actionbar dice "Mueble colocado. (n/límite)".
 
+## 3c. Novedades v1.5.0 (QoL elegida)
+
+- **Rotación 45°**: silla (no sólida) + agachado+golpe → gira de 45 en 45 (actionbar dice los
+  grados); una mesa `solid: true` sigue de 90 en 90.
+- **Plaza más cercana**: sofá de 2+ plazas — ponte junto a la plaza derecha y clica: te sienta
+  AHÍ, no en la #1.
+- **¿De quién es?**: clic derecho en un mueble decorativo (interaction none) ajeno → actionbar
+  "Mueble — de Fulano".
+- **Mueble de servidor**: `/sf place silla` mirando al suelo → se coloca sin consumir item; otro
+  jugador puede SENTARSE pero NO recogerlo ni girarlo; tú (con bypass) sí. `/sf purge server`
+  los quita todos. En `/sf gui` sale con dueño "Servidor".
+- **Límite por tipo**: pon `max-per-player: 1` a la silla + `/sf reload` → la 2ª silla se
+  rechaza ("Ya tienes el máximo de este mueble") aunque el límite global no esté lleno.
+- **/sf near**: lista los muebles a ≤20 bloques con dueño y distancia; CLIC en una línea = tp.
+- **/sf audit**: coloca/recoge/gira algo y mira `/sf audit` (y `/sf audit TuNick 5`) — debe
+  listar las operaciones con fecha/lugar; el archivo es `plugins/SuperFurnitures/furniture-log.jsonl`.
+- **Arranque**: en el log de arranque sale "Muebles: N tipo(s) en catálogo, M colocado(s)..."
+  (+ WARNs si hay errores de config/huérfanos).
+
 ## 4. Animados (si el modelo trae animación)
 
 `animated: true` en el yml → el mueble se anima en loop al colocarlo, sigue tras

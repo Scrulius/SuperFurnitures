@@ -24,6 +24,7 @@
 #                                  # apariencia 100% custom SIN resource pack
 #     mythic-item: IdDelItemMM     # alternativa: item de MythicMobs
 #     permission: ""               # permiso extra por mueble (opcional, vacío = solo el global)
+#     max-per-player: -1           # tope de ESTE mueble por jugador (-1 = solo el límite global)
 #     anchor: floor                # floor | wall | ceiling
 #     solid: false                 # true = pone bloques barrier invisibles (colisión real).
 #                                  # ⚠ Solo para muebles GRANDES que deban bloquear el paso

@@ -54,7 +54,10 @@ public class SfCommand implements CommandExecutor, TabCompleter {
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf gui [jugador]" + ChatColor.GRAY + " - GUI de todos los muebles (clic = tp, shift = recoger)");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf list [jugador]" + ChatColor.GRAY + " - Muebles colocados (todos o de un jugador)");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf check" + ChatColor.GRAY + " - Chequeo de salud: catálogo, items e índice");
-            sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf purge <jugador>" + ChatColor.GRAY + " - Eliminar TODOS los muebles de un jugador");
+            sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf place <mueble>" + ChatColor.GRAY + " - Colocar mueble de SERVIDOR (sin dueño, funcional)");
+            sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf near [radio]" + ChatColor.GRAY + " - Muebles cercanos (clic en la línea = tp)");
+            sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf audit [jugador] [n]" + ChatColor.GRAY + " - Últimas operaciones del registro");
+            sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf purge <jugador|server>" + ChatColor.GRAY + " - Eliminar TODOS los muebles de un dueño");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf seats" + ChatColor.GRAY + " - Editor de asientos con maniquís (mueble cercano)");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf footprint" + ChatColor.GRAY + " - Editor de huella sólida a golpes (mueble cercano)");
             sender.sendMessage(PREFIX + ChatColor.YELLOW + "/sf hitbox <ancho> <alto>" + ChatColor.GRAY + " - Cambiar el tamaño clicable del tipo cercano");
@@ -199,22 +202,108 @@ public class SfCommand implements CommandExecutor, TabCompleter {
             }
             case "purge" -> {
                 if (args.length < 2) {
-                    sender.sendMessage(PREFIX + ChatColor.RED + "Uso: /sf purge <jugador>");
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Uso: /sf purge <jugador|server>");
                     return true;
                 }
-                OfflinePlayer target = resolvePlayer(args[1]);
-                if (target == null) {
-                    sender.sendMessage(PREFIX + ChatColor.RED + "Jugador '" + args[1] + "' desconocido (nunca ha entrado al server).");
-                    return true;
-                }
-                int[] result = manager.purgeOwner(target.getUniqueId().toString());
-                if (result[0] == 0 && result[1] == 0) {
-                    sender.sendMessage(PREFIX + ChatColor.YELLOW + target.getName() + " no tenía muebles colocados.");
+                String ownerUuid;
+                String ownerName;
+                if (args[1].equalsIgnoreCase(FurnitureManager.SERVER_OWNER)) {
+                    ownerUuid = FurnitureManager.SERVER_OWNER;
+                    ownerName = "el servidor";
                 } else {
-                    sender.sendMessage(PREFIX + ChatColor.GREEN + "Purga de " + target.getName() + ": "
+                    OfflinePlayer target = resolvePlayer(args[1]);
+                    if (target == null) {
+                        sender.sendMessage(PREFIX + ChatColor.RED + "Jugador '" + args[1] + "' desconocido (nunca ha entrado al server).");
+                        return true;
+                    }
+                    ownerUuid = target.getUniqueId().toString();
+                    ownerName = target.getName();
+                }
+                int[] result = manager.purgeOwner(ownerUuid, sender.getName());
+                if (result[0] == 0 && result[1] == 0) {
+                    sender.sendMessage(PREFIX + ChatColor.YELLOW + ownerName + " no tenía muebles colocados.");
+                } else {
+                    sender.sendMessage(PREFIX + ChatColor.GREEN + "Purga de " + ownerName + ": "
                             + result[0] + " mueble(s) eliminado(s)"
                             + (result[1] > 0 ? ChatColor.GRAY + " (+" + result[1] + " entrada(s) huérfana(s) podada(s) del índice)" : "")
                             + ChatColor.GREEN + ".");
+                }
+            }
+            case "place" -> {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Solo in-game (se coloca donde miras).");
+                    return true;
+                }
+                if (args.length < 2) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Uso: /sf place <mueble>  (mirando al bloque destino)");
+                    return true;
+                }
+                FurnitureType type = manager.getRegistry().byId(args[1]);
+                if (type == null) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Mueble '" + args[1] + "' no registrado. Mira /sf types");
+                    return true;
+                }
+                var hit = player.rayTraceBlocks(6.0);
+                if (hit == null || hit.getHitBlock() == null || hit.getHitBlockFace() == null) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Apunta a un bloque a menos de 6 bloques.");
+                    return true;
+                }
+                manager.placeServer(type, player, hit.getHitBlock(), hit.getHitBlockFace());
+            }
+            case "near" -> {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Solo in-game.");
+                    return true;
+                }
+                int radius = 20;
+                if (args.length >= 2) {
+                    try {
+                        radius = Math.max(5, Math.min(200, Integer.parseInt(args[1])));
+                    } catch (NumberFormatException e) {
+                        sender.sendMessage(PREFIX + ChatColor.RED + "Radio inválido: " + args[1]);
+                        return true;
+                    }
+                }
+                sendNear(player, radius);
+            }
+            case "tp" -> {
+                if (!(sender instanceof Player player)) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Solo in-game.");
+                    return true;
+                }
+                if (args.length < 2) {
+                    sender.sendMessage(PREFIX + ChatColor.RED + "Uso: /sf tp <instancia>  (sale de /sf near o /sf info)");
+                    return true;
+                }
+                manager.teleportTo(player, args[1]);
+            }
+            case "audit" -> {
+                String filter = null;
+                int limit = 10;
+                if (args.length >= 2) {
+                    try {
+                        limit = Integer.parseInt(args[1]);
+                    } catch (NumberFormatException e) {
+                        filter = args[1];
+                        if (args.length >= 3) {
+                            try {
+                                limit = Integer.parseInt(args[2]);
+                            } catch (NumberFormatException ignored) {
+                            }
+                        }
+                    }
+                }
+                limit = Math.max(1, Math.min(50, limit));
+                var entries = manager.getAudit().readRecent(filter, limit);
+                if (entries.isEmpty()) {
+                    sender.sendMessage(PREFIX + ChatColor.YELLOW + "Sin entradas en el registro"
+                            + (filter != null ? " para '" + filter + "'" : "") + ".");
+                    return true;
+                }
+                sender.sendMessage(PREFIX + ChatColor.GOLD + "Últimas " + entries.size() + " operación(es)"
+                        + (filter != null ? " de " + filter : "") + " (recientes primero):");
+                for (var entry : entries) {
+                    sender.sendMessage(ChatColor.GRAY + " " + FurnitureAudit.format(entry));
                 }
             }
             case "seats" -> {
@@ -371,7 +460,14 @@ public class SfCommand implements CommandExecutor, TabCompleter {
     @Nullable
     public List<String> onTabComplete(@NotNull CommandSender sender, @NotNull Command command, @NotNull String alias, @NotNull String[] args) {
         if (args.length == 1) {
-            return filter(Arrays.asList("give", "types", "gui", "list", "check", "purge", "seats", "footprint", "hitbox", "show", "info", "reload"), args[0]);
+            return filter(Arrays.asList("give", "types", "gui", "list", "check", "place", "near", "audit",
+                    "purge", "seats", "footprint", "hitbox", "show", "info", "reload"), args[0]);
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("place")) {
+            return filter(manager.getRegistry().all().stream().map(t -> t.id).collect(Collectors.toList()), args[1]);
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("audit")) {
+            return null; // jugadores online
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("seats")) {
             return filter(Arrays.asList("add", "move", "remove", "list", "save", "cancel"), args[1]);
@@ -393,6 +489,48 @@ public class SfCommand implements CommandExecutor, TabCompleter {
             return null; // jugadores online
         }
         return Collections.emptyList();
+    }
+
+    /** /sf near: placed furniture within the radius, nearest first, each line click-to-teleport. */
+    private void sendNear(Player player, int radius) {
+        String world = player.getWorld().getName();
+        Location me = player.getLocation();
+        record Near(String instance, PlacementIndex.Placement p, double dist) {}
+        List<Near> matches = new ArrayList<>();
+        for (Map.Entry<String, PlacementIndex.Placement> e : manager.getIndex().all().entrySet()) {
+            PlacementIndex.Placement p = e.getValue();
+            if (!p.world().equals(world)) continue;
+            double dx = p.x() - me.getX(), dy = p.y() - me.getY(), dz = p.z() - me.getZ();
+            double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (dist <= radius) matches.add(new Near(e.getKey(), p, dist));
+        }
+        if (matches.isEmpty()) {
+            player.sendMessage(PREFIX + ChatColor.YELLOW + "No hay muebles a menos de " + radius + " bloques.");
+            return;
+        }
+        matches.sort(java.util.Comparator.comparingDouble(Near::dist));
+        player.sendMessage(PREFIX + ChatColor.GOLD + "Muebles a ≤" + radius + " bloques ("
+                + matches.size() + ")" + ChatColor.GRAY + " — clic en una línea para tp:");
+        int shown = 0;
+        for (Near n : matches) {
+            if (shown++ >= 20) {
+                player.sendMessage(ChatColor.GRAY + " ... y " + (matches.size() - 20) + " más (sube el radio o muévete).");
+                break;
+            }
+            String ownerLabel = FurnitureManager.ownerLabel(n.p().owner());
+            net.kyori.adventure.text.Component line = net.kyori.adventure.text.Component
+                    .text(" " + n.p().type(), net.kyori.adventure.text.format.NamedTextColor.WHITE)
+                    .append(net.kyori.adventure.text.Component.text(" (" + ownerLabel + ") ",
+                            net.kyori.adventure.text.format.NamedTextColor.GRAY))
+                    .append(net.kyori.adventure.text.Component.text(
+                            String.format(java.util.Locale.ROOT, "%.0fm @ %.0f, %.0f, %.0f",
+                                    n.dist(), n.p().x(), n.p().y(), n.p().z()),
+                            net.kyori.adventure.text.format.NamedTextColor.DARK_GRAY))
+                    .clickEvent(net.kyori.adventure.text.event.ClickEvent.runCommand("/sf tp " + n.instance()))
+                    .hoverEvent(net.kyori.adventure.text.Component.text("Teletransportarte a este mueble",
+                            net.kyori.adventure.text.format.NamedTextColor.YELLOW));
+            player.sendMessage(line);
+        }
     }
 
     /**
@@ -501,7 +639,9 @@ public class SfCommand implements CommandExecutor, TabCompleter {
         FurnitureType type = manager.getRegistry().byId(typeId);
 
         String ownerName = ownerStr;
-        if (ownerStr != null) {
+        if (FurnitureManager.SERVER_OWNER.equals(ownerStr)) {
+            ownerName = "Servidor";
+        } else if (ownerStr != null) {
             try {
                 String resolved = Bukkit.getOfflinePlayer(UUID.fromString(ownerStr)).getName();
                 if (resolved != null) ownerName = resolved;

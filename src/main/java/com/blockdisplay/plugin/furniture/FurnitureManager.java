@@ -24,6 +24,7 @@ import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -39,11 +40,16 @@ import java.util.UUID;
  */
 public class FurnitureManager {
 
+    /** Sentinel owner of admin-placed server furniture: never matches a player UUID, so only
+     *  admins with the bypass permission can pick it up or rotate it. */
+    public static final String SERVER_OWNER = "server";
+
     private final BlockDisplayPlugin plugin;
     private final FurnitureRegistry registry;
     private final PlacementIndex index;
     private final MythicHook mythic;
     private final FurnitureItems items;
+    private final FurnitureAudit audit;
 
     // PDC keys
     public final NamespacedKey keyInstance;
@@ -64,12 +70,13 @@ public class FurnitureManager {
     private final Map<UUID, Long> rotateCooldown = new HashMap<>();
 
     public FurnitureManager(BlockDisplayPlugin plugin, FurnitureRegistry registry, PlacementIndex index,
-                            MythicHook mythic, FurnitureItems items) {
+                            MythicHook mythic, FurnitureItems items, FurnitureAudit audit) {
         this.plugin = plugin;
         this.registry = registry;
         this.index = index;
         this.mythic = mythic;
         this.items = items;
+        this.audit = audit;
         this.keyInstance = new NamespacedKey(plugin, "furniture_instance");
         this.keyType = new NamespacedKey(plugin, "furniture_type");
         this.keyOwner = new NamespacedKey(plugin, "furniture_owner");
@@ -106,6 +113,7 @@ public class FurnitureManager {
     public PlacementIndex getIndex() { return index; }
     public MythicHook getMythic() { return mythic; }
     public FurnitureItems getItems() { return items; }
+    public FurnitureAudit getAudit() { return audit; }
 
     /**
      * The placeable item of a furniture type: native (built by the plugin) when the type defines
@@ -198,6 +206,10 @@ public class FurnitureManager {
             bar(player, "Límite de muebles alcanzado (" + playerLimit + "). Recoge alguno primero.", NamedTextColor.RED);
             return false;
         }
+        if (type.maxPerPlayer >= 0 && index.countByOwnerAndType(ownerStr, type.id) >= type.maxPerPlayer) {
+            bar(player, "Ya tienes el máximo de este mueble (" + type.maxPerPlayer + ").", NamedTextColor.RED);
+            return false;
+        }
         int chunkLimit = registry.getPerChunk();
         if (chunkLimit > 0 && index.countInChunk(world.getName(),
                 target.getX() >> 4, target.getZ() >> 4) >= chunkLimit) {
@@ -213,13 +225,86 @@ public class FurnitureManager {
         }
         placeCooldown.put(player.getUniqueId(), now);
 
-        ModelData modelData = registry.modelData(type.id);
-        if (modelData == null) {
+        String instanceStr = spawnAt(type, target, yaw, ownerStr);
+        if (instanceStr == null) {
             bar(player, "Este mueble está mal configurado (avisa a un admin).", NamedTextColor.RED);
             return false;
         }
+        audit.log("PLACE", player, type.id, instanceStr, target.getLocation());
+        String quota = (playerLimit < 0) ? "" : " (" + index.countByOwner(ownerStr) + "/" + playerLimit + ")";
+        bar(player, "Mueble colocado." + quota, NamedTextColor.GREEN);
+        return true;
+    }
 
-        // Origin (yaw computed above, before the shell checks)
+    /**
+     * Admin: place SERVER furniture — owner sentinel "server", so it counts against no player
+     * limit and only bypass admins can pick it up or rotate it, while interactions (seats,
+     * menus, commands) work for everyone. Skips permission/protection/limit checks (it's the
+     * admin shaping the server), keeps the physical ones (anchor face + space).
+     */
+    public boolean placeServer(FurnitureType type, Player admin, Block clicked, BlockFace face) {
+        boolean faceOk = switch (type.anchor) {
+            case FLOOR -> face == BlockFace.UP;
+            case CEILING -> face == BlockFace.DOWN;
+            case WALL -> face == BlockFace.NORTH || face == BlockFace.SOUTH
+                    || face == BlockFace.EAST || face == BlockFace.WEST;
+        };
+        if (!faceOk) {
+            String where = switch (type.anchor) {
+                case FLOOR -> "el suelo";
+                case WALL -> "una pared";
+                case CEILING -> "el techo";
+            };
+            bar(admin, "Este mueble ancla en " + where + ": apunta a esa cara.", NamedTextColor.YELLOW);
+            return false;
+        }
+        Block target = clicked.getRelative(face);
+        int heightBlocks = (type.anchor == FurnitureType.Anchor.FLOOR)
+                ? Math.max(1, (int) Math.ceil(type.hitboxHeight)) : 1;
+        float yaw = (type.anchor == FurnitureType.Anchor.WALL) ? faceYaw(face) : snap90(admin.getLocation().getYaw());
+        List<Block> shellCells = type.solid ? shellBlocks(type, target, yaw, heightBlocks) : null;
+        List<Block> toCheck = (shellCells != null && !type.footprint.isEmpty()) ? shellCells : null;
+        if (toCheck != null) {
+            for (Block cell : toCheck) {
+                if (!cell.isReplaceable()) {
+                    bar(admin, "No hay espacio suficiente aquí.", NamedTextColor.YELLOW);
+                    return false;
+                }
+            }
+        } else {
+            for (int dy = 0; dy < heightBlocks; dy++) {
+                if (!target.getRelative(0, dy, 0).isReplaceable()) {
+                    bar(admin, "No hay espacio suficiente aquí.", NamedTextColor.YELLOW);
+                    return false;
+                }
+            }
+        }
+
+        String instanceStr = spawnAt(type, target, yaw, SERVER_OWNER);
+        if (instanceStr == null) {
+            bar(admin, "Este mueble está mal configurado (modelo ausente).", NamedTextColor.RED);
+            return false;
+        }
+        audit.log("PLACE_SERVER", admin, type.id, instanceStr, target.getLocation());
+        bar(admin, "Mueble de SERVIDOR colocado (solo un admin puede recogerlo).", NamedTextColor.GREEN);
+        return true;
+    }
+
+    /**
+     * Shared spawn body: model parts, barriers, anchor Interaction with all the PDC metadata,
+     * index entry, animation binding and place sound. All validation is on the callers.
+     *
+     * @return the new instance id, or null if the type's model is missing.
+     */
+    private String spawnAt(FurnitureType type, Block target, float yaw, String ownerStr) {
+        World world = target.getWorld();
+        ModelData modelData = registry.modelData(type.id);
+        if (modelData == null) {
+            return null;
+        }
+        int heightBlocks = (type.anchor == FurnitureType.Anchor.FLOOR)
+                ? Math.max(1, (int) Math.ceil(type.hitboxHeight)) : 1;
+
         Location origin = switch (type.anchor) {
             case FLOOR, WALL -> target.getLocation().add(0.5, 0.0, 0.5);
             case CEILING -> target.getLocation().add(0.5, 1.0, 0.5);
@@ -263,9 +348,7 @@ public class FurnitureManager {
         }
 
         playSound(world, origin, type.placeSound);
-        String quota = (playerLimit < 0) ? "" : " (" + index.countByOwner(ownerStr) + "/" + playerLimit + ")";
-        bar(player, "Mueble colocado." + quota, NamedTextColor.GREEN);
-        return true;
+        return instanceStr;
     }
 
     /** The blocks a solid furniture's shell occupies: its footprint (yaw-rotated) or the origin column. */
@@ -327,6 +410,7 @@ public class FurnitureManager {
         Location loc = anchor.getLocation();
         String typeId = removeFurniture(anchor);
         FurnitureType type = registry.byId(typeId);
+        audit.log("PICKUP", player, typeId != null ? typeId : "?", instanceStr, loc);
 
         if (type == null) {
             bar(player, "Este mueble fue eliminado del catálogo: se retira sin devolver item.", NamedTextColor.YELLOW);
@@ -527,7 +611,7 @@ public class FurnitureManager {
      *
      * @return [furniture removed, stale index entries pruned]
      */
-    public int[] purgeOwner(String ownerUuid) {
+    public int[] purgeOwner(String ownerUuid, String actorName) {
         int removed = 0;
         int pruned = 0;
         for (Map.Entry<String, PlacementIndex.Placement> entry : index.byOwnerWithIds(ownerUuid).entrySet()) {
@@ -554,7 +638,10 @@ public class FurnitureManager {
                 }
             }
             if (anchor != null) {
+                String typeId = anchor.getPersistentDataContainer().get(keyType, PersistentDataType.STRING);
+                Location loc = anchor.getLocation();
                 removeFurniture(anchor);
+                audit.log("PURGE", actorName, ownerUuid, typeId != null ? typeId : "?", instance, loc);
                 removed++;
             } else {
                 index.remove(instance);
@@ -567,11 +654,13 @@ public class FurnitureManager {
     // ==================== ROTATE IN PLACE ====================
 
     /**
-     * Rotate a placed furniture 90° clockwise without picking it up (owner: sneak + punch).
-     * Model parts all live at the anchor origin with their shape in transformation matrices,
-     * so rotating is mostly per-entity yaw; authored hitbox parts CAN sit at an offset and get
-     * orbited around the origin. The solid shell is re-laid for the new yaw, with a fit check
-     * BEFORE touching anything.
+     * Rotate a placed furniture clockwise without picking it up (owner: sneak + punch).
+     * Non-solid furniture turns in 45° steps (diagonal chairs around a round table); solid
+     * furniture keeps 90° steps — its barrier shell must stay grid-aligned. Model parts all
+     * live at the anchor origin with their shape in transformation matrices, so rotating is
+     * mostly per-entity yaw; authored hitbox parts CAN sit at an offset and get orbited around
+     * the origin. The solid shell is re-laid for the new yaw, with a fit check BEFORE touching
+     * anything.
      */
     public void rotateFurniture(Player player, Interaction anchor) {
         PersistentDataContainer pdc = anchor.getPersistentDataContainer();
@@ -601,7 +690,8 @@ public class FurnitureManager {
 
         Float yawObj = pdc.get(keyYaw, PersistentDataType.FLOAT);
         float oldYaw = yawObj != null ? yawObj : 0f;
-        float newYaw = (oldYaw + 90f) % 360f;
+        float step = type.solid ? 90f : 45f;
+        float newYaw = (oldYaw + step) % 360f;
         World world = anchor.getWorld();
         Location origin = anchor.getLocation();
 
@@ -639,17 +729,18 @@ public class FurnitureManager {
             Location l = near.getLocation();
             double offX = l.getX() - origin.getX();
             double offZ = l.getZ() - origin.getZ();
-            double[] r = rotate(offX, offZ, 90f);
+            double[] r = rotate(offX, offZ, step);
             Location moved = new Location(world,
                     origin.getX() + r[0], l.getY(), origin.getZ() + r[1],
-                    l.getYaw() + 90f, l.getPitch());
+                    l.getYaw() + step, l.getPitch());
             near.teleport(moved);
         }
 
         pdc.set(keyYaw, PersistentDataType.FLOAT, newYaw);
         reshell(anchor);
         playSound(world, origin, type.placeSound);
-        bar(player, "Mueble girado.", NamedTextColor.GREEN);
+        audit.log("ROTATE", player, type.id, instanceStr, origin);
+        bar(player, "Mueble girado (" + Math.round(newYaw) + "°).", NamedTextColor.GREEN);
     }
 
     // ==================== TYPE RE-SYNC (admin tuning tools) ====================
@@ -744,8 +835,29 @@ public class FurnitureManager {
                     Bukkit.dispatchCommand(console ? Bukkit.getConsoleSender() : player, cmd);
                 }
             }
-            case NONE -> { }
+            case NONE -> {
+                // Decorative furniture: right-click answers "whose is this?" instead of nothing.
+                String owner = pdc.get(keyOwner, PersistentDataType.STRING);
+                bar(player, prettyName(type.id) + " — " + ownerLabel(owner), NamedTextColor.GRAY);
+            }
         }
+    }
+
+    /** "de Pepe" / "del servidor" / "sin dueño" for an owner string from the anchor PDC. */
+    static String ownerLabel(String ownerStr) {
+        if (ownerStr == null) return "sin dueño";
+        if (SERVER_OWNER.equals(ownerStr)) return "del servidor";
+        try {
+            String name = Bukkit.getOfflinePlayer(UUID.fromString(ownerStr)).getName();
+            return name != null ? "de " + name : "de " + ownerStr;
+        } catch (IllegalArgumentException e) {
+            return "de " + ownerStr;
+        }
+    }
+
+    private static String prettyName(String id) {
+        String clean = id.replace('_', ' ').replace('-', ' ');
+        return clean.isEmpty() ? id : Character.toUpperCase(clean.charAt(0)) + clean.substring(1);
     }
 
     /** @return true (and swallow the click) if the player clicked a command/menu furniture too fast. */
@@ -766,7 +878,19 @@ public class FurnitureManager {
         String instanceStr = anchor.getPersistentDataContainer().get(keyInstance, PersistentDataType.STRING);
         Location base = anchor.getLocation();
 
-        for (double[] offset : type.seats) {
+        // Multi-seat furniture: try the seat NEAREST to the player first (you sit where you
+        // stand by the sofa, not always in seat #1).
+        List<double[]> ordered = new ArrayList<>(type.seats);
+        Location me = player.getLocation();
+        ordered.sort(Comparator.comparingDouble(offset -> {
+            double[] r = rotate(offset[0], offset[2], yaw);
+            double dx = base.getX() + r[0] - me.getX();
+            double dy = base.getY() + offset[1] - me.getY();
+            double dz = base.getZ() + r[1] - me.getZ();
+            return dx * dx + dy * dy + dz * dz;
+        }));
+
+        for (double[] offset : ordered) {
             double[] rotated = rotate(offset[0], offset[2], yaw);
             Location seatLoc = base.clone().add(rotated[0], offset[1], rotated[1]);
             seatLoc.setYaw(seatYaw(yaw, offset));

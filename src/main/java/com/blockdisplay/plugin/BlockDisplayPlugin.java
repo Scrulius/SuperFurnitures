@@ -1,6 +1,7 @@
 package com.blockdisplay.plugin;
 
 import com.blockdisplay.plugin.furniture.FootprintEditor;
+import com.blockdisplay.plugin.furniture.FurnitureAudit;
 import com.blockdisplay.plugin.furniture.FurnitureCommand;
 import com.blockdisplay.plugin.furniture.FurnitureGui;
 import com.blockdisplay.plugin.furniture.FurnitureItems;
@@ -81,7 +82,9 @@ public class BlockDisplayPlugin extends JavaPlugin {
         FurnitureItems furnitureItems = new FurnitureItems(this);
         FurnitureRegistry furnitureRegistry = new FurnitureRegistry(this);
         PlacementIndex placementIndex = new PlacementIndex(this);
-        this.furnitureManager = new FurnitureManager(this, furnitureRegistry, placementIndex, mythicHook, furnitureItems);
+        FurnitureAudit furnitureAudit = new FurnitureAudit(this);
+        this.furnitureManager = new FurnitureManager(this, furnitureRegistry, placementIndex, mythicHook,
+                furnitureItems, furnitureAudit);
         this.seatEditor = new SeatEditor(this, furnitureManager);
         this.footprintEditor = new FootprintEditor(this, furnitureManager);
         getServer().getPluginManager().registerEvents(new FurnitureListener(this, furnitureManager), this);
@@ -95,9 +98,34 @@ public class BlockDisplayPlugin extends JavaPlugin {
         getCommand("furniture").setExecutor(furnitureCommand);
         getCommand("furniture").setTabCompleter(furnitureCommand);
 
+        logFurnitureHealth(furnitureRegistry, placementIndex);
+
         // Note: saved models load asynchronously, so they aren't counted here yet
         // (PersistenceManager logs "Loading N saved model(s)..." and one line per model as they arrive).
         getLogger().info("SuperFurnitures enabled.");
+    }
+
+    /** Startup health summary: a broken catalog/index should be visible without joining the game. */
+    private void logFurnitureHealth(FurnitureRegistry registry, PlacementIndex index) {
+        int loadErrors = registry.lastErrors().size();
+        var placements = index.all();
+        int orphanTypes = 0;
+        int missingWorlds = 0;
+        for (PlacementIndex.Placement p : placements.values()) {
+            if (registry.byId(p.type()) == null) orphanTypes++;
+            if (getServer().getWorld(p.world()) == null) missingWorlds++;
+        }
+        getLogger().info("Muebles: " + registry.all().size() + " tipo(s) en catálogo, "
+                + placements.size() + " colocado(s) en el índice.");
+        if (loadErrors > 0) {
+            getLogger().warning("Muebles: " + loadErrors + " error(es) de config en furniture.yml — revisa con /sf check.");
+        }
+        if (orphanTypes > 0) {
+            getLogger().warning("Muebles: " + orphanTypes + " colocado(s) de tipos fuera del catálogo (no devolverán item).");
+        }
+        if (missingWorlds > 0) {
+            getLogger().warning("Muebles: " + missingWorlds + " colocado(s) en mundos que no están cargados.");
+        }
     }
 
     private void migrateOldDataFolder() {

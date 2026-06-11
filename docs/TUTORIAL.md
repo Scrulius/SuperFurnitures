@@ -163,8 +163,10 @@ colocados (los de chunks descargados se alinean solos al cargar). Re-lanza el sh
 |---|---|
 | **Clic derecho con el item** en un bloque | Coloca el mueble mirando hacia él (snap 90°). Consume el item. |
 | **Clic derecho** al mueble | Lo usa: sentarse / abrir menú / ejecutar comandos (según el tipo). |
-| **Agachado + golpe** | Lo **gira 90°** (solo el dueño). |
+| **Agachado + golpe** | Lo **gira** (solo el dueño): 45° si no es sólido, 90° si lo es. |
 | **Agachado + clic derecho con la mano vacía** | Lo **recoge** (solo el dueño): vuelve el item. |
+| **Clic derecho** en un mueble decorativo | Te dice de quién es ("Silla — de Pepe"). |
+| Clic en un **sofá multi-plaza** | Te sienta en la **plaza más cercana a ti**. |
 | `/furniture list` | Sus muebles y dónde están. |
 | `/furniture limit` | Su cuota usada/total. |
 
@@ -179,12 +181,22 @@ asiento dentro de un mueble sólido, el plugin te saca al primer hueco libre (si
 ```
 /sf gui                 ← GUI de TODOS los muebles del server: clic = teleport, shift+clic = recoger
 /sf gui <jugador>       ← lo mismo filtrado a un jugador
+/sf place <mueble>      ← mueble de SERVIDOR donde miras: sin dueño ni límites, nadie lo recoge
+                          (solo admin), pero asientos/menús FUNCIONAN — bancos del spawn
+/sf near [radio]        ← muebles a ≤N bloques, el más cercano primero; CLIC en la línea = tp
+/sf audit [jugador] [n] ← últimas operaciones del registro (quién colocó/recogió/giró qué y dónde)
 /sf list                ← resumen de TODOS los muebles del server, por dueño (texto)
 /sf list <jugador>      ← el detalle de uno (tipo + coordenadas + mundo)
 /sf check               ← chequeo de salud: errores de catálogo, items rotos, índice
-/sf purge <jugador>     ← borra todos los suyos (carga chunks si hace falta)
+/sf purge <jugador|server> ← borra todos los de un dueño (server = los de /sf place)
 /sf give <mueble> [jugador] [cantidad]
 ```
+
+Todo queda auditado en `furniture-log.jsonl` (rota solo a los 2 MB), y al arrancar el server
+la consola resume la salud del módulo (tipos, errores de config, colocados, huérfanos).
+
+Límites finos: además del global, cada mueble admite `max-per-player: N` en furniture.yml
+(ej. máximo 2 del mueble-tienda por jugador).
 
 **Auto-mantenimiento que no tienes que hacer tú**: el índice (`placements.json`) se cura solo
 al cargar chunks — si un admin mató entities a mano, la entrada huérfana se poda; si el json

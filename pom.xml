@@ -6,7 +6,7 @@
 
     <groupId>com.blockdisplay.plugin</groupId>
     <artifactId>SuperFurnitures</artifactId>
-    <version>1.4.0</version>
+    <version>1.5.0</version>
     <packaging>jar</packaging>
 
     <name>SuperFurnitures</name>

@@ -36,6 +36,7 @@ public class FurnitureType {
     public final String mythicItem;     // MythicMobs item id (null = native item only)
     public final ItemSpec item;         // native item spec (null = MythicMobs item only)
     public final String permission;     // extra per-furniture permission ("" = none)
+    public final int maxPerPlayer;      // per-type per-player cap (-1 = only the global limit)
     public final Anchor anchor;
     public final boolean solid;
     public final boolean animated;
@@ -49,7 +50,8 @@ public class FurnitureType {
     public final String placeSound;
     public final String pickupSound;
 
-    private FurnitureType(String id, String model, String mythicItem, ItemSpec item, String permission, Anchor anchor,
+    private FurnitureType(String id, String model, String mythicItem, ItemSpec item, String permission,
+                          int maxPerPlayer, Anchor anchor,
                           boolean solid, boolean animated, float hitboxWidth, float hitboxHeight,
                           InteractionType interactionType, List<double[]> seats, String menu,
                           List<String> commands, List<int[]> footprint, String placeSound, String pickupSound) {
@@ -58,6 +60,7 @@ public class FurnitureType {
         this.mythicItem = mythicItem;
         this.item = item;
         this.permission = permission;
+        this.maxPerPlayer = maxPerPlayer;
         this.anchor = anchor;
         this.solid = solid;
         this.animated = animated;
@@ -121,6 +124,7 @@ public class FurnitureType {
         return new FurnitureType(
                 id, model, mythicItem, itemSpec,
                 s.getString("permission", ""),
+                s.getInt("max-per-player", -1),
                 anchor,
                 s.getBoolean("solid", false),
                 s.getBoolean("animated", false),

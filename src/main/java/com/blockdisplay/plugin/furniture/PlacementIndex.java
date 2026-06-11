@@ -78,6 +78,15 @@ public class PlacementIndex {
         return count;
     }
 
+    /** How many furniture of ONE type a player has placed (per-type limits). */
+    public int countByOwnerAndType(String ownerUuid, String typeId) {
+        int count = 0;
+        for (Placement p : byInstance.values()) {
+            if (p.owner().equals(ownerUuid) && p.type().equals(typeId)) count++;
+        }
+        return count;
+    }
+
     public int countInChunk(String world, int chunkX, int chunkZ) {
         int count = 0;
         for (Placement p : byInstance.values()) {
